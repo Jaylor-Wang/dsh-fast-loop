@@ -1,6 +1,6 @@
 {
   "name": "dsh-fast-loop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "High-performance streaming agent loop plugin for DeepSeek Harness",
   "type": "module",
   "author": "Jaylor-Wang",
@@ -46,6 +46,23 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-brand": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-scope": "*",
+    "@deepseek-ai/dsh-session": "*",
+    "@deepseek-ai/dsh-session-persistence": "*",
+    "@deepseek-ai/dsh-session-projection": "*",
+    "@deepseek-ai/dsh-system-prompt": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/dsh-util-values": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "devDependencies": {
     "@deepseek-ai/cordis": "~4.0.5",
     "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
     "@deepseek-ai/dsh-brand": "0.2.1-rc.2",
@@ -57,7 +74,6 @@
     "@deepseek-ai/dsh-system-prompt": "0.2.1-rc.2",
     "@deepseek-ai/dsh-tools": "0.2.1-rc.2",
     "@deepseek-ai/dsh-util-values": "0.2.1-rc.2",
-    "@deepseek-ai/schemastery": "~3.18.5",
-    "zod": "4.4.3"
+    "@deepseek-ai/schemastery": "~3.18.5"
   }
 }
