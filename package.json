@@ -3,6 +3,34 @@
   "version": "0.1.0",
   "description": "High-performance streaming agent loop plugin for DeepSeek Harness",
   "type": "module",
+  "author": "Jaylor-Wang",
+  "license": "MIT",
+  "homepage": "https://github.com/Jaylor-Wang/dsh-fast-loop#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jaylor-Wang/dsh-fast-loop.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Jaylor-Wang/dsh-fast-loop/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "agent-loop",
+    "fast-loop",
+    "streaming"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "lib",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "exports": {
@@ -13,7 +41,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@deepseek-ai/cordis": "~4.0.5",
