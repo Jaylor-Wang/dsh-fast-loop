@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Context } from "@deepseek-ai/cordis";
 import { SessionSeq, type Session } from "@deepseek-ai/dsh-session";
+import type { InboxState, InboxWireState } from "@deepseek-ai/dsh-agent";
 import type { ProjectionDefinition } from "@deepseek-ai/dsh-session-projection";
 import { type SystemMessage, type UserMessage } from "@deepseek-ai/dsh-llm";
 /**
@@ -17,7 +18,12 @@ export declare const inboxProjectionSchema: z.ZodReadonly<z.ZodObject<{
  * Inbox projection definition.
  * Fold that reconstructs pending input from durable 'agent/inbox/spliced' events.
  */
-export declare const inboxProjectionDefinition: ProjectionDefinition<"inbox">;
+export declare const inboxProjectionDefinition: ProjectionDefinition<"inbox", InboxState> & {
+    wire: {
+        viewSchema: typeof inboxProjectionSchema;
+        view(state: InboxState): InboxWireState;
+    };
+};
 /**
  * Reconciles system prompt text with the session surface.
  * Node 0 is reserved for the initial system prompt, and updates either replace node 0

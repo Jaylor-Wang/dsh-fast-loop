@@ -13,14 +13,13 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
-## Highlights in v0.2.0
+## Highlights in v0.3.0
 
-- **Full Context Occupancy Feeding**: Dispatches `request/context` scheduling events on turn boundaries, ensuring real-time context token occupancy percentage and meter rendering in Web UI.
-- **Strict FIFO Commit Order & Card Pairing**: Bounded concurrent tool execution guarantees exact FIFO event persistence; each `tool/result` links `sourceEventSeqs` for flawless Web UI card pairing.
-- **Verified Benchmark Suite**: Built-in test suite verifying bounded concurrency limits, exclusive tool synchronization barriers, and achieving ~8x throughput speedup in batch I/O workloads.
-- **Cordis Caller-Shadow Isolation Protection**: Decouples factory dependency resolution from caller shadow contexts to prevent service resolution errors without breaking isolation realms.
-- **Zero-Latency Transactional Inbox & Resiliency**: Atomic message claiming and durable turn/step boundary self-healing across reloads and interruptions.
-
+- **Bulletproof Session Lifecycle & Zero-Leak Write Lock Cleanup**: Resolves the `SessionAlreadyOwnedError` (`session/writer-held`) lock conflict when switching or resuming sessions in DSH Web / Electron. Guarantees persistence handles and preparation states are cleanly disposed via transaction-rollback `finally` blocks on cold read errors, aborted requests, or setup failures.
+- **Isolated Multi-Stage Teardown Pipeline**: Fault-tolerant agent teardown executes cancellation, scope disposal, handle closure, and registry detachment in independent catch blocks, ensuring persistence handles are released even if `whenIdle()` or child tasks throw.
+- **Native Cordis Async Disposer Awaiting**: Properly integrates async lifecycle disposers into `ownerCtx.effect`, preventing teardown race conditions when users refresh browsers, disconnect WebSockets, or change session tabs.
+- **Clean Service Unload Draining**: Automatically tracks and settles all active session handles when the plugin itself is disabled or reloaded.
+- **Comprehensive Lifecycle & Failure Recovery Test Suite**: Added dedicated `node:test` lifecycle test suite validating lock release across disk failures, setup rejections, caller aborts, and teardown errors.
 ---
 
 ## Features

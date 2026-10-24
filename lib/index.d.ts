@@ -6,12 +6,14 @@ import type { FastLoopConfig } from "./types.js";
 export declare class FastAgentLoop extends Service implements AgentFactory {
     readonly config: FastLoopConfig;
     static inject: string[];
-    static Config: z<any, FastLoopConfig>;
+    static Config: z<FastLoopConfig, FastLoopConfig>;
     /** Plain holder prevents Cordis from re-tracing the factory's dependency context through a caller shadow. */
     private readonly runtime;
+    private readonly activeTeardowns;
     constructor(ctx: Context, config?: FastLoopConfig);
     createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle>;
     resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;
+    private setupAndPublish;
 }
 export { turnBoundaryProjectionDefinition, inboxProjectionDefinition };
 export default FastAgentLoop;
