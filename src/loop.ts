@@ -2,6 +2,7 @@ import type { Agent } from "@deepseek-ai/dsh-agent";
 import { assembleContextFor } from "@deepseek-ai/dsh-agent";
 import {
   createAssistantMessage,
+  createDeveloperMessage,
   createToolResultMessage,
   LlmError,
   markAgentLoopRequest,
@@ -10,6 +11,7 @@ import {
   type UserMessage
 } from "@deepseek-ai/dsh-llm";
 import { canonicalHeader, headerEquals } from "@deepseek-ai/dsh-session";
+import type { RequestContext } from "@deepseek-ai/dsh-session/types";
 import {
   joinContextSections,
   renderContextSections,
@@ -239,20 +241,81 @@ export class FastLoopDriver {
       });
 
       const baseline = this.agent.session.requestHeader();
+      const startsSeries =
+        startsRequestSeries ||
+        this.requestSurfaceGeneration !== this.agent.session.surface.contentGeneration;
+      let headerSeq: any;
       if (!this.requestHeaderLogged) {
-        this.agent.session.append("request/header", {
+        headerSeq = this.agent.session.append("request/header", {
           header,
-          reason: baseline === undefined ? "initial" : "resume"
-        });
+          reason: baseline === undefined ? "initial" : "resume",
+          ...(startsSeries ? { startsSeries: true } : {})
+        }).seq;
         this.requestHeaderLogged = true;
       } else if (baseline === undefined || !headerEquals(baseline, header)) {
+        headerSeq = this.agent.session.append("request/header", {
+          header,
+          reason: "change",
+          ...(startsSeries ? { startsSeries: true } : {})
+        }).seq;
+      } else if (startsSeries) {
         this.agent.session.append("request/header", {
           header,
-          reason: "change"
+          reason: "series"
         });
       }
 
+      if (baseline !== undefined && headerSeq !== undefined) {
+        const previousNames = new Set(baseline.tools?.map((tool: any) => tool.name));
+        const currentNames = new Set(tools.map((tool: any) => tool.name));
+        const additions = tools
+          .filter((tool: any) => !previousNames.has(tool.name))
+          .map((tool: any) => ({
+            type: "tool-addition" as const,
+            toolName: tool.name
+          }));
+        const removals = (baseline.tools ?? [])
+          .filter((tool: any) => !currentNames.has(tool.name))
+          .map((tool: any) => ({
+            type: "tool-removal" as const,
+            toolName: tool.name
+          }));
+        if (additions.length > 0 || removals.length > 0) {
+          this.agent.session.append(
+            "developer/message",
+            {
+              turn,
+              step,
+              message: createDeveloperMessage({
+                source: { kind: "tool-registry" } as any,
+                content: [...additions, ...removals] as any
+              }),
+              ...(additions.length > 0 ? { headerSeq } : {})
+            },
+            { surfaceOp: "append" }
+          );
+        }
+      }
+
       this.requestSurfaceGeneration = this.agent.session.surface.contentGeneration;
+
+      const contextWindow = preparedCall?.context?.contextWindow;
+      const systemPromptUpdate = preparedCall?.systemPromptUpdate;
+      const requestContext: RequestContext = {
+        provider: config.provider,
+        model: config.model,
+        ...(contextWindow !== undefined ? { contextWindow } : {}),
+        ...(systemPromptUpdate !== undefined ? { systemPromptUpdate } : {})
+      };
+      const previousContext = this.agent.session.requestContext();
+      if (
+        previousContext?.provider !== requestContext.provider ||
+        previousContext?.model !== requestContext.model ||
+        previousContext?.contextWindow !== requestContext.contextWindow ||
+        previousContext?.systemPromptUpdate !== requestContext.systemPromptUpdate
+      ) {
+        this.agent.session.append("request/context", requestContext);
+      }
 
       const boundaryMessages = this.agent.session.deriveMessages();
       for (const m of boundaryMessages) {
