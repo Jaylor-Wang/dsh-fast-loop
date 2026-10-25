@@ -4,6 +4,7 @@ import {
   createAssistantMessage,
   createDeveloperMessage,
   createToolResultMessage,
+  createUserMessage,
   LlmError,
   markAgentLoopRequest,
   type LlmCallConfig,
@@ -631,16 +632,18 @@ export class FastLoopDriver {
 
       // Model leaked raw DSML markup but no structured tool-call was emitted: inject nudge to self-heal
       if (hasDsmlLeak && toolCalls.length === 0) {
-        this.agent.inbox.append("next-step", {
-          id: `nudge_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: "Tool call failed: your previous response tried to invoke a tool, but the tool-call markup was malformed into plain text, so no tool was executed. Please re-issue the intended tool call using standard tool call format."
-            }
-          ]
-        } as any);
+        this.agent.inbox.append(
+          "next-step",
+          createUserMessage({
+            source: { kind: "fast-loop" } as unknown as UserMessage["source"],
+            content: [
+              {
+                type: "text",
+                text: "Tool call failed: your previous response tried to invoke a tool, but the tool-call markup was malformed into plain text, so no tool was executed. Please re-issue the intended tool call using standard tool call format."
+              }
+            ]
+          })
+        );
         return false;
       }
 
