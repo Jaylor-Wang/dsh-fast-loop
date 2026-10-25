@@ -94,8 +94,8 @@ function printHelp() {
 dsh-fast-loop CLI - Effortless Switcher between Fast Loop & Official Loop
 
 Usage:
+  dsh-fast-loop <command> [options]
   npx dsh-fast-loop <command> [options]
-
 Commands:
   enable, on, start     Enable dsh-fast-loop and disable official agent-loop
   disable, off, stop    Disable dsh-fast-loop and restore official agent-loop
@@ -108,9 +108,9 @@ Options:
   --max-parallel <num>  Maximum parallel tool calls when enabling (default: 10)
 
 Examples:
-  npx dsh-fast-loop enable
-  npx dsh-fast-loop disable
-  npx dsh-fast-loop status
+  dsh-fast-loop enable
+  dsh-fast-loop disable
+  dsh-fast-loop status
 `);
 }
 
