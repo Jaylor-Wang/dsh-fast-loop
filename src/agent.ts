@@ -8,8 +8,8 @@ import type {
   InboxTarget,
   AgentEventDispatch
 } from "@deepseek-ai/dsh-agent";
-import { agentEvents } from "@deepseek-ai/dsh-agent";
-import { createScope, type Scope } from "@deepseek-ai/dsh-scope";
+import type { Scope } from "@deepseek-ai/dsh-scope";
+import { getHostServices } from "./host.js";
 import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { Session } from "@deepseek-ai/dsh-session";
 import type { UserMessage } from "@deepseek-ai/dsh-llm";
@@ -54,8 +54,9 @@ export class FastAgent implements Agent {
     this.session = session;
     this.loopConfig = loopConfig;
 
-    this.dispatch = agentEvents(loopCtx, this as unknown as Agent);
-    this.scope = createScope(loopCtx, this as unknown as Agent);
+    const hostServices = getHostServices(loopCtx);
+    this.dispatch = hostServices.agentEvents(loopCtx, this as unknown as Agent);
+    this.scope = hostServices.createScope(loopCtx, this as unknown as Agent);
     this.ctx = this.scope.ctx;
     this.inbox = new FastInbox(this.loopCtx.sessionProjections, session, this.dispatch);
 

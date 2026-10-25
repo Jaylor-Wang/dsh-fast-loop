@@ -1,6 +1,6 @@
 import type { Context } from "@deepseek-ai/cordis";
 import type { Agent, AgentCancelCause, AgentOptions, AgentStatus, CancelOptions, InboxTarget, AgentEventDispatch } from "@deepseek-ai/dsh-agent";
-import { type Scope } from "@deepseek-ai/dsh-scope";
+import type { Scope } from "@deepseek-ai/dsh-scope";
 import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { Session } from "@deepseek-ai/dsh-session";
 import type { UserMessage } from "@deepseek-ai/dsh-llm";
