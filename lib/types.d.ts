@@ -3,6 +3,8 @@ import type { SessionId } from "@deepseek-ai/dsh-session/types";
 export interface FastLoopConfig {
     maxParallelToolCalls?: number;
     enableStreamingTools?: boolean;
+    enablePathAwareBarrier?: boolean;
+    enableSteeringSoftInterrupt?: boolean;
     agents?: (AgentOptions & {
         id: string;
         sessionId?: SessionId;

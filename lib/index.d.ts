@@ -15,6 +15,8 @@ export declare class FastAgentLoop extends Service implements AgentFactory {
     resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle>;
     private setupAndPublish;
 }
+export { normalizeAssistantBlocks } from "./loop.js";
+export * from "./barrier.js";
 export { turnBoundaryProjectionDefinition, inboxProjectionDefinition };
 export default FastAgentLoop;
 //# sourceMappingURL=index.d.ts.map

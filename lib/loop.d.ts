@@ -1,4 +1,15 @@
+import { type ToolCallBlock } from "@deepseek-ai/dsh-llm";
 import type { FastAgent } from "./agent.js";
+export interface NormalizedBlocksResult {
+    blocks: any[];
+    toolCalls: ToolCallBlock[];
+    hasDsmlLeak: boolean;
+}
+export declare function stripDsmlFromText(text: string): {
+    text: string;
+    hasLeak: boolean;
+};
+export declare function normalizeAssistantBlocks(rawBlocks: readonly any[]): NormalizedBlocksResult;
 export declare class FastLoopDriver {
     private readonly agent;
     private assistantStreamRevision;

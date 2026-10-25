@@ -32,6 +32,8 @@ export class FastAgentLoop extends Service implements AgentFactory {
   static Config: z<FastLoopConfig, FastLoopConfig> = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(10),
     enableStreamingTools: z.boolean().default(true),
+    enablePathAwareBarrier: z.boolean().default(true),
+    enableSteeringSoftInterrupt: z.boolean().default(true),
     agents: z.array(z.any()).default([])
   });
 
@@ -335,5 +337,7 @@ export class FastAgentLoop extends Service implements AgentFactory {
   }
 }
 
+export { normalizeAssistantBlocks } from "./loop.js";
+export * from "./barrier.js";
 export { turnBoundaryProjectionDefinition, inboxProjectionDefinition };
 export default FastAgentLoop;
