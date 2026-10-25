@@ -13,6 +13,14 @@
 
 ---
 
+## v0.4.5 版本核心特性
+
+- **流式帧号严格单调递增与终止守卫**：引入 `AssistantStreamAttempt` 状态机终结守卫，杜绝重复发射帧与跳号，彻底消除前端因 `RemoteStreamCarrierError: session assistant stream skipped revision` 导致的白屏断流。
+- **活跃阶段输入唤醒锁存（用户中途追问保障）**：当驱动处于执行态（`running`）接收用户消息时，硬件级强制锁存 `phase.wakeRequested = true` 并在轮次结算后自动唤醒驱动，根治“正在分析请求卡死、消息被吞”。
+- **纯净轮次结算与信号隔离**：严格按轮次重新分配全新的 `AbortController` 并重置步骤计数，结算始终返回标准 `{ kind: "completed" }`，彻底根除前端 UI 虚假弹出的红字“处理失败”。
+- **对齐 DSH 会话 V4 事件溯源规范**：合成自愈消息均携带生产者所有权标识（`source: { kind: "fast-loop" }`），100% 满足会话事件规范校验。
+- **全套前端洁癖契约回归测试**：内置 4 项针对前端挑剔时序的专属 Mock 契约测试，保障版本迭代稳定不破约。
+
 ## v0.4.3 版本核心特性
 
 - **动态宿主 Scope 桥接与零 Symbol 漂移**：彻底解决跨包安装环境下的 `Symbol("dsh.scope")` 副本隔离问题，完美契合 `dsh-agent-preset-registry` 与 `dsh-tools` 的宿主上下文校验，彻底消除新建会话与恢复会话时的 `Agent preset binding requires a scoped context` 报错。

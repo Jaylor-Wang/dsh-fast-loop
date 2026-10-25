@@ -13,6 +13,14 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
+## Highlights in v0.4.5
+
+- **Strict Monotonic Stream Revisions & Terminal Guard**: Enforces monotonic assistant stream revisions with a terminal guard (`push`, `settle`, `abandon`), eliminating duplicate frames and preventing `RemoteStreamCarrierError: session assistant stream skipped revision` in DSH Web UI.
+- **Active Phase Wake Latching (Steering Guarantee)**: Latches `phase.wakeRequested = true` when messages arrive during active execution (`phase.kind === "running"`), automatically waking the driver upon turn completion so mid-turn user inputs are never dropped.
+- **Clean Turn Settlement & Signal Reset**: Resets `AbortController` and step counters per turn, ensuring turns end with clean `{ kind: "completed" }` statuses and eliminating spurious UI "处理失败" error markers.
+- **Event-Sourced V4 Protocol Compliance**: Correctly sets producer-owned source kinds on synthetic recovery messages to satisfy strict DSH Session V4 formatting contracts.
+- **Comprehensive Front-End Contract Test Suite**: Ships with dedicated mock tests covering stream monotonicity, idempotent abandonment, V4 source compliance, and phase wake latching.
+
 ## Highlights in v0.4.3
 
 - **Dynamic Host Scope Resolution & Zero-Symbol Drift**: Seamlessly resolves host `@deepseek-ai/dsh-scope` and `@deepseek-ai/dsh-agent` instances across heterogeneous installation boundaries. Eliminates `Agent preset binding requires a scoped context` errors when creating or resuming sessions in DSH Web / Desktop.
