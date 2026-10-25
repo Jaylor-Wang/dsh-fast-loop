@@ -13,13 +13,15 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
-## Highlights in v0.3.0
+## Highlights in v0.4.2
 
-- **Bulletproof Session Lifecycle & Zero-Leak Write Lock Cleanup**: Resolves the `SessionAlreadyOwnedError` (`session/writer-held`) lock conflict when switching or resuming sessions in DSH Web / Electron. Guarantees persistence handles and preparation states are cleanly disposed via transaction-rollback `finally` blocks on cold read errors, aborted requests, or setup failures.
-- **Isolated Multi-Stage Teardown Pipeline**: Fault-tolerant agent teardown executes cancellation, scope disposal, handle closure, and registry detachment in independent catch blocks, ensuring persistence handles are released even if `whenIdle()` or child tasks throw.
-- **Native Cordis Async Disposer Awaiting**: Properly integrates async lifecycle disposers into `ownerCtx.effect`, preventing teardown race conditions when users refresh browsers, disconnect WebSockets, or change session tabs.
-- **Clean Service Unload Draining**: Automatically tracks and settles all active session handles when the plugin itself is disabled or reloaded.
-- **Comprehensive Lifecycle & Failure Recovery Test Suite**: Added dedicated `node:test` lifecycle test suite validating lock release across disk failures, setup rejections, caller aborts, and teardown errors.
+- **Path-Aware Barrier (Argument-Aware Concurrency)**: Overcomes DSH's unary tool classification. Disjoint file editing operations (`edit`, `write`, `read`) run concurrently up to the hardware boundary (`maxParallelToolCalls`), while operations targeting identical file paths are safely serialized to prevent race conditions. Global barrier tools (`bash`, commands) execute exclusively.
+- **Built-in Global CLI Switcher (`dsh-fast-loop`)**: Ships the out-of-the-box command-line tool allowing users to effortlessly toggle between Fast Loop and the official Agent Loop from any terminal (`dsh-fast-loop enable`, `dsh-fast-loop disable`, `dsh-fast-loop status`).
+- **Durable Crash & Failure Recovery (`ToolCallRecovery`)**: Integrates session-level `ToolCallRecovery` observation. If an execution turn aborts, crashes, or is interrupted mid-step, unclosed `tool/call` events are automatically paired with synthetic `tool/result` records, completely eliminating orphan calls that trigger `400 Bad Request` on resumption.
+- **Collaborative Soft-Interruption for Wait Tools (Zero-Latency Steering)**: Actively monitors `inbox.hasPending` during tool execution. Interruptible wait tools (`wait`, `sleep`, `ask_user`) are gracefully aborted with `TOOL_INTERRUPT_ABORT_REASON` upon incoming user steer messages, allowing the agent to yield immediately with zero latency.
+- **Model Protocol Leak & Self-Healing Nudge (`DSML & ID Healer`)**: Strips leaked raw `<｜tool_calls｜>` tags from visible assistant text. If a model leaks tags without emitting structured tool calls, automatically injects a self-healing corrective nudge into `inbox.nextStep` to prompt proper re-execution within the same turn. Tool-call IDs are validated and deduplicated across the session.
+- **Official Error Waterfall & Telemetry Alignment**: Fully restores the `agent/request-error` waterfall and `agent/error` event emission, enabling seamless integration with official DSH retry policies (exponential backoff, 429 rate limit delays) and telemetry UIs.
+- **Bulletproof Session Lifecycle & Zero-Leak Write Lock Cleanup**: Resolves the `SessionAlreadyOwnedError` (`session/writer-held`) lock conflict when switching or resuming sessions in DSH Web / Electron via transaction-rollback `finally` cleanup.
 ---
 
 ## Features
@@ -95,8 +97,9 @@ In `~/.dsh/profiles/web/cordis.patch.yml`, disable `agent-loop` and insert `dsh-
 | :--- | :--- | :--- | :--- |
 | `maxParallelToolCalls` | `number` | `10` | Maximum number of concurrent parallel tool calls allowed per step. |
 | `enableStreamingTools` | `boolean` | `true` | Whether to enable streaming tool result delivery. |
+| `enablePathAwareBarrier` | `boolean` | `true` | Whether to enable Path-Aware Barrier for multi-file concurrent edits. |
+| `enableSteeringSoftInterrupt` | `boolean` | `true` | Whether to enable cooperative soft-interruption for wait tools upon incoming steer messages. |
 | `agents` | `array` | `[]` | Static agent identity and configuration overrides. |
-
 ---
 
 ## License

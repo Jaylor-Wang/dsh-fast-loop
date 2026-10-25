@@ -13,13 +13,15 @@
 
 ---
 
-## v0.3.0 版本核心特性
+## v0.4.2 版本核心特性
 
+- **路径级读写并发屏障（Path-Aware Barrier）**：打破 DSH 原生“一元独占”调度枷锁。跨文件读写编辑（`edit`、`write`、`read`）并发度拉满至物理极限（`maxParallelToolCalls`），同文件操作自动安全串行互斥；全局副作用工具（`bash`）自动升格为隔离屏障。
+- **内置全局 CLI 一键开关（`dsh-fast-loop`）**：原生提供系统级命令行工具，支持在任意终端直接运行 `dsh-fast-loop enable`、`dsh-fast-loop disable` 与 `dsh-fast-loop status`，安全外科手术式修改 `cordis.patch.yml` 并触发 DSH live HMR，实现秒级无感切换与回退。
+- **崩溃断点自动兜底防崩（ToolCallRecovery）**：对齐 DSH 会话事件溯源要求，在 Step 意外崩溃或中断时自动补齐未成对的 `tool/result`，彻底杜绝孤儿调用导致下一次恢复报 `400 Bad Request`。
+- **耗时等待与 Steer 协作式软打断（零延迟响应）**：工具批次执行期间实时监听 `inbox`，在用户中途发送指导意见时立即触发局部软打断（`TOOL_INTERRUPT_ABORT_REASON`），耗时等待工具（`wait`、`sleep`、`ask`）即刻让出控制权，交互响应零延迟。
+- **DeepSeek 畸变拦截与 Nudge 自愈机制**：清洗文本中泄漏的裸 `<｜tool_calls｜>` 标签；当模型纯文本泄漏而无结构化调用时，自动注入自愈 Nudge 推动模型步入下一步正确调用；对重复与空 ID 自动规整为会话唯一 ID。
+- **官方错误重试瀑布流与遥测对齐**：完整还原 `agent/request-error` 瀑布流并分发 `agent/error` 事件，与官方指数退避、429 限流重试插件 100% 契约兼容。
 - **会话全生命周期事务级回滚与零锁泄漏**：彻底修复切换/恢复会话时出现的 `SessionAlreadyOwnedError`（`当前会话已被占用 / session/writer-held`）死锁 Bug。在创建、恢复、冷读取失败、外部中断或 setup 校验失败时，均通过 `finally` 块强制回收持久化句柄（Handle）与释放写锁。
-- **多阶段隔离容错销毁流水线**：将任务取消、作用域注销、句柄释放、Session/Agent 注册表解绑进行独立 `try...catch` 隔离保护，即便 `whenIdle()` 超时或子任务抛错，也能稳定释放持久化锁与内存注册表。
-- **原生 Cordis 异步注销等待**：在 `ownerCtx.effect` 中正确等待异步生命周期注销完成，彻底杜绝用户快速刷新浏览器、重连 WebSocket 或切换会话标签时的生命周期并发竞争。
-- **插件级零泄漏注销清理**：当 `dsh-fast-loop` 自身被热重载、卸载或禁用时，统一安全清空并释放所有活跃的会话句柄。
-- **全生命周期自动化异常测试套件**：引入专门针对磁盘读取崩溃、用户中途取消、setup 异常回滚及销毁容错的 `node:test` 测试套件，保障绝对的高可用性。
 ---
 
 ## 核心特性与架构设计
@@ -95,8 +97,9 @@ npx dsh-fast-loop status
 | :--- | :--- | :--- | :--- |
 | `maxParallelToolCalls` | `number` | `10` | 单个 Step 中允许并发执行的最大工具调用数量。 |
 | `enableStreamingTools` | `boolean` | `true` | 是否启用工具执行结果流式推送。 |
+| `enablePathAwareBarrier` | `boolean` | `true` | 是否启用路径级读写并发屏障（多文件并发编辑）。 |
+| `enableSteeringSoftInterrupt` | `boolean` | `true` | 是否启用长等待工具与 Steer 消息的协作式软打断。 |
 | `agents` | `array` | `[]` | 静态声明的 Agent 标识符及个性化配置覆盖列表。 |
-
 ---
 
 ## 开源协议
