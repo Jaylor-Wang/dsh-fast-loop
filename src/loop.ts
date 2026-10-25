@@ -35,6 +35,51 @@ import {
   RuntimeContextProjection
 } from "./projections.js";
 
+export function resolveToolScheduler(ctxOrTools: any): any {
+  const candidates = [
+    ctxOrTools?.tools,
+    ctxOrTools?.ctx?.tools,
+    ctxOrTools?.loopCtx?.tools,
+    ctxOrTools
+  ];
+  for (const target of candidates) {
+    if (!target) continue;
+
+    // 1. Direct local symbol check
+    if (typeof TOOL_RUNTIME_SCHEDULER !== "undefined" && target[TOOL_RUNTIME_SCHEDULER]) {
+      return target[TOOL_RUNTIME_SCHEDULER];
+    }
+
+    // 2. Cross-instance Symbol lookup via description
+    const matchedSym = Object.getOwnPropertySymbols(target).find(
+      s => s.description === "TOOL_RUNTIME_SCHEDULER" ||
+           s.description?.includes("tool-runtime-scheduler") ||
+           s.description?.includes("dsh-tools.scheduler") ||
+           s.toString().includes("TOOL_RUNTIME_SCHEDULER") ||
+           s.toString().includes("dsh-tools.scheduler")
+    );
+    if (matchedSym && target[matchedSym]) {
+      return target[matchedSym];
+    }
+
+    // 3. Regular scheduler property
+    if (target.scheduler?.prepare) {
+      return target.scheduler;
+    }
+
+    // 4. Duck-typing
+    if (typeof target.prepareScheduledExecution === "function") {
+      return {
+        prepare: (exec: any) => target.prepareScheduledExecution(exec),
+        dispatch: (exec: any) => target.dispatchScheduledExecution(exec),
+        finalize: (exec: any, result: any) => target.finalizeScheduledExecution(exec, result),
+        finish: (exec: any, result: any) => target.finishScheduledExecution(exec, result)
+      };
+    }
+  }
+  return undefined;
+}
+
 const DSML_TAG_REGEX = /<\s*\/?\s*[｜|]{0,2}\s*(?:DSML\s*[｜|]{1,2}\s*)?(?:tool_calls|invoke|parameter|calls|tool[\s▁]*(?:calls|call)?[\s▁]*(?:begin|end|sep)?)\b[^<>]*>?/gi;
 
 export interface NormalizedBlocksResult {
@@ -817,7 +862,7 @@ export class FastLoopDriver {
         const slot = slots[committed];
         if (slot === undefined) break;
         const call = group[committed];
-        const scheduler = this.agent.loopCtx.tools[TOOL_RUNTIME_SCHEDULER];
+        const scheduler = resolveToolScheduler(this.agent.ctx?.tools ?? this.agent.loopCtx?.tools ?? this.agent.ctx ?? this.agent.loopCtx);
         const result = slot.needsPost && scheduler?.finalize
           ? await scheduler.finalize(slot.exec, slot.result)
           : (scheduler?.finish ? scheduler.finish(slot.exec, slot.result) : slot.result);
@@ -884,7 +929,7 @@ export class FastLoopDriver {
         signal: callCtrl.signal
       };
 
-      const scheduler = this.agent.loopCtx.tools[TOOL_RUNTIME_SCHEDULER];
+      const scheduler = resolveToolScheduler(this.agent.ctx?.tools ?? this.agent.loopCtx?.tools ?? this.agent.ctx ?? this.agent.loopCtx);
       let prepared: any;
       try {
         prepared = await scheduler.prepare(execWithSignal);

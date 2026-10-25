@@ -1,5 +1,6 @@
 import { type ToolCallBlock } from "@deepseek-ai/dsh-llm";
 import type { FastAgent } from "./agent.js";
+export declare function resolveToolScheduler(ctxOrTools: any): any;
 export interface NormalizedBlocksResult {
     blocks: any[];
     toolCalls: ToolCallBlock[];

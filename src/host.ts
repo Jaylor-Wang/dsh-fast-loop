@@ -1,11 +1,13 @@
 import type { Context } from "@deepseek-ai/cordis";
 import * as localScope from "@deepseek-ai/dsh-scope";
 import * as localAgent from "@deepseek-ai/dsh-agent";
+import * as localTools from "@deepseek-ai/dsh-tools";
 
 export interface HostServices {
   createScope: typeof localScope.createScope;
   scopeOf: typeof localScope.scopeOf;
   agentEvents: typeof localAgent.agentEvents;
+  toolSchedulerSymbol?: symbol;
 }
 
 const hostCache = new WeakMap<object, HostServices>();
@@ -34,6 +36,7 @@ export function getHostServices(ctx?: Context): HostServices {
       createScope: localScope.createScope,
       scopeOf: localScope.scopeOf,
       agentEvents: localAgent.agentEvents,
+      toolSchedulerSymbol: localTools.TOOL_RUNTIME_SCHEDULER,
     };
   }
 
@@ -65,6 +68,14 @@ export function getHostServices(ctx?: Context): HostServices {
           const req = createReq(anchor);
           const hostScope = req("@deepseek-ai/dsh-scope") as unknown as typeof localScope;
           const hostAgent = req("@deepseek-ai/dsh-agent") as unknown as typeof localAgent;
+          let toolSchedulerSymbol: symbol | undefined;
+          try {
+            const hostTools = req("@deepseek-ai/dsh-tools") as unknown as { TOOL_RUNTIME_SCHEDULER?: symbol };
+            toolSchedulerSymbol = hostTools?.TOOL_RUNTIME_SCHEDULER;
+          } catch {
+            // ignore
+          }
+
           if (hostScope?.createScope && hostAgent?.agentEvents) {
             const services: HostServices = {
               createScope: (activeCtx, key, options) => {
@@ -84,6 +95,7 @@ export function getHostServices(ctx?: Context): HostServices {
               },
               scopeOf: hostScope.scopeOf,
               agentEvents: hostAgent.agentEvents,
+              toolSchedulerSymbol: toolSchedulerSymbol ?? localTools.TOOL_RUNTIME_SCHEDULER,
             };
             hostCache.set(root, services);
             return services;
@@ -101,6 +113,7 @@ export function getHostServices(ctx?: Context): HostServices {
     createScope: localScope.createScope,
     scopeOf: localScope.scopeOf,
     agentEvents: localAgent.agentEvents,
+    toolSchedulerSymbol: localTools.TOOL_RUNTIME_SCHEDULER,
   };
   hostCache.set(root, fallback);
   return fallback;
