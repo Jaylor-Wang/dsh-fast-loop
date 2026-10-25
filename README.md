@@ -21,16 +21,6 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 - **Event-Sourced V4 Protocol Compliance**: Correctly sets producer-owned source kinds on synthetic recovery messages to satisfy strict DSH Session V4 formatting contracts.
 - **Comprehensive Front-End Contract Test Suite**: Ships with dedicated mock tests covering stream monotonicity, idempotent abandonment, V4 source compliance, and phase wake latching.
 
-## Highlights in v0.4.3
-
-- **Dynamic Host Scope Resolution & Zero-Symbol Drift**: Seamlessly resolves host `@deepseek-ai/dsh-scope` and `@deepseek-ai/dsh-agent` instances across heterogeneous installation boundaries. Eliminates `Agent preset binding requires a scoped context` errors when creating or resuming sessions in DSH Web / Desktop.
-- **Path-Aware Barrier (Argument-Aware Concurrency)**: Overcomes DSH's unary tool classification. Disjoint file editing operations (`edit`, `write`, `read`) run concurrently up to the hardware boundary (`maxParallelToolCalls`), while operations targeting identical file paths are safely serialized to prevent race conditions. Global barrier tools (`bash`, commands) execute exclusively.
-- **Built-in Global CLI Switcher (`dsh-fast-loop`)**: Ships the out-of-the-box command-line tool allowing users to effortlessly toggle between Fast Loop and the official Agent Loop from any terminal (`dsh-fast-loop enable`, `dsh-fast-loop disable`, `dsh-fast-loop status`).
-- **Durable Crash & Failure Recovery (`ToolCallRecovery`)**: Integrates session-level `ToolCallRecovery` observation. If an execution turn aborts, crashes, or is interrupted mid-step, unclosed `tool/call` events are automatically paired with synthetic `tool/result` records, completely eliminating orphan calls that trigger `400 Bad Request` on resumption.
-- **Collaborative Soft-Interruption for Wait Tools (Zero-Latency Steering)**: Actively monitors `inbox.hasPending` during tool execution. Interruptible wait tools (`wait`, `sleep`, `ask_user`) are gracefully aborted with `TOOL_INTERRUPT_ABORT_REASON` upon incoming user steer messages, allowing the agent to yield immediately with zero latency.
-- **Model Protocol Leak & Self-Healing Nudge (`DSML & ID Healer`)**: Strips leaked raw `<｜tool_calls｜>` tags from visible assistant text. If a model leaks tags without emitting structured tool calls, automatically injects a self-healing corrective nudge into `inbox.nextStep` to prompt proper re-execution within the same turn. Tool-call IDs are validated and deduplicated across the session.
-- **Official Error Waterfall & Telemetry Alignment**: Fully restores the `agent/request-error` waterfall and `agent/error` event emission, enabling seamless integration with official DSH retry policies (exponential backoff, 429 rate limit delays) and telemetry UIs.
-- **Bulletproof Session Lifecycle & Zero-Leak Write Lock Cleanup**: Resolves the `SessionAlreadyOwnedError` (`session/writer-held`) lock conflict when switching or resuming sessions in DSH Web / Electron via transaction-rollback `finally` cleanup.
 ---
 
 ## Features
