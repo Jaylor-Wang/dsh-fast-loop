@@ -52,9 +52,24 @@ npm install dsh-fast-loop@latest
 pnpm add dsh-fast-loop@latest
 ```
 
-### 在 `cordis.patch.yml` 中启用
+### 方式一：命令行一键切换（推荐，零风险）
 
-禁用默认的 `agent-loop` 并插入 `dsh-fast-loop`：
+内置 CLI 自动安全更新 `cordis.patch.yml`，彻底杜绝手写 YAML 缩进错误：
+
+```sh
+# 启用 dsh-fast-loop 并禁用官方 loop
+npx dsh-fast-loop enable
+
+# 一键回退至官方原生 agent-loop
+npx dsh-fast-loop disable
+
+# 查看当前激活模式
+npx dsh-fast-loop status
+```
+
+### 方式二：手动在 `cordis.patch.yml` 中配置
+
+在 `~/.dsh/profiles/web/cordis.patch.yml` 中禁用默认的 `agent-loop` 并插入 `dsh-fast-loop`：
 
 ```yaml
 # 禁用原生 Agent Loop
@@ -66,9 +81,10 @@ pnpm add dsh-fast-loop@latest
   - id: fast-loop
     name: dsh-fast-loop
     config:
-      agents: []
       maxParallelToolCalls: 10
       enableStreamingTools: true
+      enablePathAwareBarrier: true
+      enableSteeringSoftInterrupt: true
 ```
 
 ---

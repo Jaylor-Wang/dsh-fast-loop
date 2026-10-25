@@ -52,9 +52,24 @@ npm install dsh-fast-loop@latest
 pnpm add dsh-fast-loop@latest
 ```
 
-### Enable in `cordis.patch.yml`
+### Method 1: One-Click CLI Switcher (Recommended)
 
-Disable the default `agent-loop` and insert `dsh-fast-loop`:
+Switch between Fast Loop and Official Loop effortlessly without manual YAML editing:
+
+```sh
+# Enable dsh-fast-loop and disable official agent-loop
+npx dsh-fast-loop enable
+
+# Restore official agent-loop and disable fast-loop
+npx dsh-fast-loop disable
+
+# Check current active loop mode
+npx dsh-fast-loop status
+```
+
+### Method 2: Manual `cordis.patch.yml` Configuration
+
+In `~/.dsh/profiles/web/cordis.patch.yml`, disable `agent-loop` and insert `dsh-fast-loop`:
 
 ```yaml
 # Disable standard loop
@@ -66,9 +81,10 @@ Disable the default `agent-loop` and insert `dsh-fast-loop`:
   - id: fast-loop
     name: dsh-fast-loop
     config:
-      agents: []
       maxParallelToolCalls: 10
       enableStreamingTools: true
+      enablePathAwareBarrier: true
+      enableSteeringSoftInterrupt: true
 ```
 
 ---
