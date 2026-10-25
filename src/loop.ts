@@ -175,9 +175,11 @@ export class FastLoopDriver {
             this.agent.phase.step = step;
             this.agent.session.append("step/start", stepPosition);
             const toolRecovery = new ToolCallRecovery();
-            const stopRecovery = this.agent.loopCtx.on("session/event", (session: any, event: any) => {
-              if (session === this.agent.session) toolRecovery.observe(event);
-            });
+            const stopRecovery = typeof (this.agent.loopCtx as any)?.on === "function"
+              ? (this.agent.loopCtx as any).on("session/event", (session: any, event: any) => {
+                  if (session === this.agent.session) toolRecovery.observe(event);
+                })
+              : () => {};
 
             let stepConcluded = false;
             try {
@@ -1036,7 +1038,7 @@ export class FastLoopDriver {
 
     const checkAndApplySteerInterrupt = () => {
       if (this.agent.loopConfig?.enableSteeringSoftInterrupt === false) return false;
-      if (!this.agent.inbox.hasPending) return false;
+      if (!this.agent.inbox?.hasPending) return false;
 
       let applied = false;
       for (const runningIdx of inFlight.keys()) {
@@ -1055,11 +1057,13 @@ export class FastLoopDriver {
     };
 
     let wakeSteerWaiter: (() => void) | undefined;
-    const unregisterSession = this.agent.loopCtx.on("session/event", (session: any, event: any) => {
-      if (session === this.agent.session && event.type === "agent/inbox/spliced") {
-        wakeSteerWaiter?.();
-      }
-    });
+    const unregisterSession = typeof (this.agent.loopCtx as any)?.on === "function"
+      ? (this.agent.loopCtx as any).on("session/event", (session: any, event: any) => {
+          if (session === this.agent.session && event.type === "agent/inbox/spliced") {
+            wakeSteerWaiter?.();
+          }
+        })
+      : () => {};
 
     try {
       await fillPool();
