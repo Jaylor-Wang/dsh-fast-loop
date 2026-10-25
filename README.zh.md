@@ -13,8 +13,9 @@
 
 ---
 
-## v0.4.2 版本核心特性
+## v0.4.3 版本核心特性
 
+- **动态宿主 Scope 桥接与零 Symbol 漂移**：彻底解决跨包安装环境下的 `Symbol("dsh.scope")` 副本隔离问题，完美契合 `dsh-agent-preset-registry` 与 `dsh-tools` 的宿主上下文校验，彻底消除新建会话与恢复会话时的 `Agent preset binding requires a scoped context` 报错。
 - **路径级读写并发屏障（Path-Aware Barrier）**：打破 DSH 原生“一元独占”调度枷锁。跨文件读写编辑（`edit`、`write`、`read`）并发度拉满至物理极限（`maxParallelToolCalls`），同文件操作自动安全串行互斥；全局副作用工具（`bash`）自动升格为隔离屏障。
 - **内置全局 CLI 一键开关（`dsh-fast-loop`）**：原生提供系统级命令行工具，支持在任意终端直接运行 `dsh-fast-loop enable`、`dsh-fast-loop disable` 与 `dsh-fast-loop status`，安全外科手术式修改 `cordis.patch.yml` 并触发 DSH live HMR，实现秒级无感切换与回退。
 - **崩溃断点自动兜底防崩（ToolCallRecovery）**：对齐 DSH 会话事件溯源要求，在 Step 意外崩溃或中断时自动补齐未成对的 `tool/result`，彻底杜绝孤儿调用导致下一次恢复报 `400 Bad Request`。

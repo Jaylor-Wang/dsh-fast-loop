@@ -13,8 +13,9 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
-## Highlights in v0.4.2
+## Highlights in v0.4.3
 
+- **Dynamic Host Scope Resolution & Zero-Symbol Drift**: Seamlessly resolves host `@deepseek-ai/dsh-scope` and `@deepseek-ai/dsh-agent` instances across heterogeneous installation boundaries. Eliminates `Agent preset binding requires a scoped context` errors when creating or resuming sessions in DSH Web / Desktop.
 - **Path-Aware Barrier (Argument-Aware Concurrency)**: Overcomes DSH's unary tool classification. Disjoint file editing operations (`edit`, `write`, `read`) run concurrently up to the hardware boundary (`maxParallelToolCalls`), while operations targeting identical file paths are safely serialized to prevent race conditions. Global barrier tools (`bash`, commands) execute exclusively.
 - **Built-in Global CLI Switcher (`dsh-fast-loop`)**: Ships the out-of-the-box command-line tool allowing users to effortlessly toggle between Fast Loop and the official Agent Loop from any terminal (`dsh-fast-loop enable`, `dsh-fast-loop disable`, `dsh-fast-loop status`).
 - **Durable Crash & Failure Recovery (`ToolCallRecovery`)**: Integrates session-level `ToolCallRecovery` observation. If an execution turn aborts, crashes, or is interrupted mid-step, unclosed `tool/call` events are automatically paired with synthetic `tool/result` records, completely eliminating orphan calls that trigger `400 Bad Request` on resumption.
