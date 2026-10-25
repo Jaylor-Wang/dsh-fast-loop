@@ -12,7 +12,7 @@ import {
   type UserMessage
 } from "@deepseek-ai/dsh-llm";
 import { ToolCallRecovery, canonicalHeader, headerEquals } from "@deepseek-ai/dsh-session";
-import type { RequestContext } from "@deepseek-ai/dsh-session/types";
+import type { RequestContext, TurnEndReason } from "@deepseek-ai/dsh-session/types";
 import {
   joinContextSections,
   renderContextSections,
@@ -162,12 +162,12 @@ export class FastLoopDriver {
         this.agent.session.append("turn/start", { turn });
 
         let step = 0;
-        let turnConcluded = false;
+        let turnEnds: TurnEndReason | null = null;
         let target: "next-turn" | "next-step" = "next-turn";
-        let turnEnds: any = { kind: "completed" };
 
         try {
-          while (!turnConcluded && !signal.aborted) {
+          while (true) {
+            signal.throwIfAborted();
             step++;
             const stepPosition = { turn, step };
 
@@ -206,13 +206,15 @@ export class FastLoopDriver {
             // If pre-step rejects, no step is opened; turn concludes cleanly as blocked
             if (decision.kind === "reject") {
               turnEnds = { kind: "blocked" };
-              turnConcluded = true;
+              break;
+            }
+
+            if (turnEnds !== null && decision.messages.length === 0) {
               break;
             }
 
             if (step === 1 && decision.messages.length === 0) {
               turnEnds = { kind: "completed" };
-              turnConcluded = true;
               break;
             }
 
@@ -227,9 +229,11 @@ export class FastLoopDriver {
                 })
               : () => {};
 
-            let stepConcluded = false;
             try {
-              stepConcluded = await this.runStep(turn, step, decision, assembly, signal);
+              const stepOutcome = await this.runStep(turn, step, decision, assembly, signal);
+              if (turnEnds === null || turnEnds.kind !== "max-tokens") {
+                turnEnds = stepOutcome;
+              }
             } catch (error) {
               try {
                 for (const event of toolRecovery.results()) {
@@ -251,17 +255,18 @@ export class FastLoopDriver {
               this.agent.session.append("step/end", stepPosition);
             }
 
-            if (stepConcluded && this.agent.inbox.nextStep.length === 0) {
+            signal.throwIfAborted();
+
+            if (turnEnds !== null && this.agent.inbox.nextStep.length === 0) {
               await this.agent.dispatch.serial("agent/turn-stopping", {
                 turn,
                 signal
               });
               signal.throwIfAborted();
-              if (this.agent.inbox.nextStep.length === 0) {
-                turnConcluded = true;
-              }
-            } else if (stepConcluded) {
-              turnConcluded = true;
+            }
+
+            if (turnEnds !== null && this.agent.inbox.nextStep.length === 0) {
+              break;
             }
           }
         } catch (error) {
@@ -295,16 +300,26 @@ export class FastLoopDriver {
             turn,
             reason: cancelCause !== undefined
               ? { kind: "aborted", reason: cancelCause }
-              : turnEnds
+              : (turnEnds ?? { kind: "completed" })
           });
         }
+
+        // Latch for next turn: allocate clean controller, reset step
+        if (!this.agent.inbox.hasPending) break;
+        this.agent.phase.abort = new AbortController();
+        this.agent.phase.wakeRequested = false;
+        this.agent.phase.step = 0;
       }
     } finally {
       if (this.agent.phase.kind === "running") {
+        const { turn, wakeRequested } = this.agent.phase;
         this.agent.setPhase({
           kind: "idle",
-          lastTurn: this.agent.phase.turn
+          lastTurn: turn
         });
+        if (wakeRequested && this.agent.inbox.hasPending) {
+          this.agent.wakeDriver();
+        }
       }
     }
   }
@@ -315,7 +330,7 @@ export class FastLoopDriver {
     decision: { kind: "enter"; messages: readonly UserMessage[]; startsRequestSeries?: boolean },
     assembly: any,
     signal: AbortSignal
-  ): Promise<boolean> {
+  ): Promise<TurnEndReason | null> {
     const renderedPrompt = assembly?.sections ? renderPrompt(assembly) : "";
     let firstAttempt = true;
 
@@ -487,178 +502,182 @@ export class FastLoopDriver {
         }
       );
 
-      let started = false;
       try {
-        const stream =
-          typeof preparedCall?.stream === "function"
-            ? preparedCall.stream(request)
-            : this.agent.loopCtx.llm.stream(request);
-        signal.throwIfAborted();
-        live.start();
-        started = true;
-        for await (const chunk of stream) {
+        let started = false;
+        try {
+          const stream =
+            typeof preparedCall?.stream === "function"
+              ? preparedCall.stream(request)
+              : this.agent.loopCtx.llm.stream(request);
           signal.throwIfAborted();
-          live.push(chunk);
-        }
-        signal.throwIfAborted();
-      } catch (error) {
-        if (!started) throw error;
-        if (signal.aborted) {
-          const content = live.interruptedBlocks();
-          if (content.length > 0) {
-            live.settle("assistant/message", () =>
-              this.agent.session.append(
-                "assistant/message",
-                {
+          live.start();
+          started = true;
+          for await (const chunk of stream) {
+            signal.throwIfAborted();
+            live.push(chunk);
+          }
+          signal.throwIfAborted();
+        } catch (error) {
+          if (!started) throw error;
+          if (signal.aborted) {
+            const content = live.interruptedBlocks();
+            if (content.length > 0) {
+              live.settle("assistant/message", () =>
+                this.agent.session.append(
+                  "assistant/message",
+                  {
+                    turn,
+                    step,
+                    message: createAssistantMessage({
+                      content: content as any,
+                      source: {
+                        provider: request.provider,
+                        model: request.model,
+                        ...(live.replayState !== undefined ? { replayState: live.replayState } : {})
+                      }
+                    }),
+                    interrupted: true,
+                    ...(live.usage ? { usage: live.usage } : {}),
+                    stream: [...live.stream]
+                  },
+                  { surfaceOp: "append" }
+                ).seq
+              );
+            } else {
+              live.settle("assistant/attempt", () =>
+                this.agent.session.append("assistant/attempt", {
                   turn,
                   step,
-                  message: createAssistantMessage({
-                    content: content as any,
-                    source: {
-                      provider: request.provider,
-                      model: request.model,
-                      ...(live.replayState !== undefined ? { replayState: live.replayState } : {})
-                    }
-                  }),
-                  interrupted: true,
-                  ...(live.usage ? { usage: live.usage } : {}),
                   stream: [...live.stream]
-                },
-                { surfaceOp: "append" }
-              ).seq
-            );
-          } else {
-            live.settle("assistant/attempt", () =>
-              this.agent.session.append("assistant/attempt", {
-                turn,
-                step,
-                stream: [...live.stream]
-              }).seq
-            );
+                }).seq
+              );
+            }
+            throw error;
+          }
+
+          // Non-abort stream error: settle attempt and dispatch agent/request-error waterfall
+          live.settle("assistant/attempt", () =>
+            this.agent.session.append("assistant/attempt", {
+              turn,
+              step,
+              stream: [...live.stream]
+            }).seq
+          );
+
+          const action = await this.agent.dispatch.waterfall(
+            "agent/request-error",
+            {
+              turn,
+              step,
+              provider: request.provider,
+              failure: {
+                message: error instanceof Error ? error.message : String(error),
+                code: (error as any)?.code ?? "STREAM_ERROR"
+              },
+              retryPolicy: preparedCall?.retryPolicy,
+              signal
+            },
+            () => Promise.resolve(undefined)
+          );
+
+          signal.throwIfAborted();
+          if ((action as any)?.kind === "retry") {
+            continue;
           }
           throw error;
         }
 
-        // Non-abort stream error: settle attempt and dispatch agent/request-error waterfall
-        live.settle("assistant/attempt", () =>
-          this.agent.session.append("assistant/attempt", {
-            turn,
-            step,
-            stream: [...live.stream]
-          }).seq
-        );
+        // Inspect live finish outcome
+        const finish = live.finish;
+        if (finish && (finish.kind === "error" || finish.kind === "aborted")) {
+          live.settle("assistant/attempt", () =>
+            this.agent.session.append("assistant/attempt", {
+              turn,
+              step,
+              stream: [...live.stream]
+            }).seq
+          );
 
-        const action = await this.agent.dispatch.waterfall(
-          "agent/request-error",
-          {
-            turn,
-            step,
-            provider: request.provider,
-            failure: {
-              message: error instanceof Error ? error.message : String(error),
-              code: (error as any)?.code ?? "STREAM_ERROR"
+          const action = await this.agent.dispatch.waterfall(
+            "agent/request-error",
+            {
+              turn,
+              step,
+              provider: request.provider,
+              failure: finish.failure,
+              retryPolicy: preparedCall?.retryPolicy,
+              signal
             },
-            retryPolicy: preparedCall?.retryPolicy,
-            signal
-          },
-          () => Promise.resolve(undefined)
+            () => Promise.resolve(undefined)
+          );
+
+          signal.throwIfAborted();
+          if ((action as any)?.kind === "retry") {
+            continue;
+          }
+          throw new LlmError(finish.failure.message, finish.failure.code, finish.failure);
+        }
+
+        // Successful completion: normalize tool-call IDs & cleanse leaked DSML markup
+        const { blocks, toolCalls, hasDsmlLeak } = normalizeAssistantBlocks(live.blocks());
+        live.settle("assistant/message", () =>
+          this.agent.session.append(
+            "assistant/message",
+            {
+              turn,
+              step,
+              message: createAssistantMessage({
+                content: blocks as any,
+                source: {
+                  provider: request.provider,
+                  model: request.model,
+                  ...(live.replayState !== undefined ? { replayState: live.replayState } : {})
+                }
+              }),
+              ...(live.usage ? { usage: live.usage } : {}),
+              stream: [...live.stream]
+            },
+            { surfaceOp: "append" }
+          ).seq
         );
 
-        signal.throwIfAborted();
-        if ((action as any)?.kind === "retry") {
-          continue;
+        if (finish?.kind === "max-tokens") {
+          return { kind: "max-tokens" };
         }
+
+        // Model leaked raw DSML markup but no structured tool-call was emitted: inject nudge to self-heal
+        if (hasDsmlLeak && toolCalls.length === 0) {
+          this.agent.inbox.append(
+            "next-step",
+            createUserMessage({
+              source: { kind: "fast-loop" } as unknown as UserMessage["source"],
+              content: [
+                {
+                  type: "text",
+                  text: "Tool call failed: your previous response tried to invoke a tool, but the tool-call markup was malformed into plain text, so no tool was executed. Please re-issue the intended tool call using standard tool call format."
+                }
+              ]
+            })
+          );
+          return null;
+        }
+
+        if (toolCalls.length > 0) {
+          const { concluded } = await this.executeTools(
+            turn,
+            step,
+            toolCalls,
+            signal,
+            (context) => this.agent.inbox.append("next-step", context as any)
+          );
+          return concluded ? { kind: "completed" } : null;
+        }
+
+        return { kind: "completed" };
+      } catch (error) {
+        if (!live.ended) live.abandon();
         throw error;
       }
-
-      // Inspect live finish outcome
-      const finish = live.finish;
-      if (finish && (finish.kind === "error" || finish.kind === "aborted")) {
-        live.settle("assistant/attempt", () =>
-          this.agent.session.append("assistant/attempt", {
-            turn,
-            step,
-            stream: [...live.stream]
-          }).seq
-        );
-
-        const action = await this.agent.dispatch.waterfall(
-          "agent/request-error",
-          {
-            turn,
-            step,
-            provider: request.provider,
-            failure: finish.failure,
-            retryPolicy: preparedCall?.retryPolicy,
-            signal
-          },
-          () => Promise.resolve(undefined)
-        );
-
-        signal.throwIfAborted();
-        if ((action as any)?.kind === "retry") {
-          continue;
-        }
-        throw new LlmError(finish.failure.message, finish.failure.code, finish.failure);
-      }
-
-      // Successful completion
-      // Successful completion: normalize tool-call IDs & cleanse leaked DSML markup
-      const { blocks, toolCalls, hasDsmlLeak } = normalizeAssistantBlocks(live.blocks());
-      live.settle("assistant/message", () =>
-        this.agent.session.append(
-          "assistant/message",
-          {
-            turn,
-            step,
-            message: createAssistantMessage({
-              content: blocks as any,
-              source: {
-                provider: request.provider,
-                model: request.model,
-                ...(live.replayState !== undefined ? { replayState: live.replayState } : {})
-              }
-            }),
-            ...(live.usage ? { usage: live.usage } : {}),
-            stream: [...live.stream]
-          },
-          { surfaceOp: "append" }
-        ).seq
-      );
-
-      if (finish?.kind === "max-tokens") {
-        return true;
-      }
-
-      // Model leaked raw DSML markup but no structured tool-call was emitted: inject nudge to self-heal
-      if (hasDsmlLeak && toolCalls.length === 0) {
-        this.agent.inbox.append(
-          "next-step",
-          createUserMessage({
-            source: { kind: "fast-loop" } as unknown as UserMessage["source"],
-            content: [
-              {
-                type: "text",
-                text: "Tool call failed: your previous response tried to invoke a tool, but the tool-call markup was malformed into plain text, so no tool was executed. Please re-issue the intended tool call using standard tool call format."
-              }
-            ]
-          })
-        );
-        return false;
-      }
-
-      if (toolCalls.length > 0) {
-        const { concluded } = await this.executeTools(
-          turn,
-          step,
-          toolCalls,
-          signal,
-          (context) => this.agent.inbox.append("next-step", context as any)
-        );
-        return concluded;
-      }
-
-      return true;
     }
   }
 

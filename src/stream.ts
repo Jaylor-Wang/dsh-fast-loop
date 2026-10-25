@@ -43,6 +43,7 @@ export class AssistantStreamAttempt {
   }
 
   push(chunk: StreamChunk): void {
+    if (this.terminal) return;
     const timed = this.accumulator.push({
       time: Date.now(),
       chunk
@@ -59,6 +60,7 @@ export class AssistantStreamAttempt {
   }
 
   settle(eventType: "assistant/message" | "assistant/attempt", append: () => SessionSeq): void {
+    if (this.terminal) return;
     let seq: SessionSeq;
     try {
       seq = append();
@@ -81,6 +83,7 @@ export class AssistantStreamAttempt {
   }
 
   abandon(): void {
+    if (this.terminal) return;
     this.terminal = true;
     this.emit({
       type: "end",

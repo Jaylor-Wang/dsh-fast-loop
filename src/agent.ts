@@ -153,7 +153,7 @@ export class FastAgent implements Agent {
     if (this.phase.kind !== "idle") {
       if (
         getCancelCause(this.phase.abort.signal)?.kind !== "disposed" &&
-        (this.phase.kind === "maintenance" || wakeAfterAbort)
+        (this.phase.kind === "maintenance" || this.phase.kind === "running" || wakeAfterAbort)
       ) {
         this.phase.wakeRequested = true;
       }
