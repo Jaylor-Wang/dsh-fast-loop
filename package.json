@@ -1,6 +1,6 @@
 {
   "name": "dsh-fast-loop",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "High-performance streaming agent loop plugin for DeepSeek Harness",
   "type": "module",
   "author": "Jaylor-Wang",
