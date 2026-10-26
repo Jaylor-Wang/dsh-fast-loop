@@ -29,8 +29,8 @@ export class FastAgentLoop extends Service implements AgentFactory {
     "sessionProjections"
   ];
 
-  static Config: z<FastLoopConfig, FastLoopConfig> = z.object({
-    maxParallelToolCalls: z.number().step(1).min(1).default(10),
+  static Config = z.object({
+    maxParallelToolCalls: z.number().step(1).min(1).default(10).volatile(),
     enableStreamingTools: z.boolean().default(true),
     enablePathAwareBarrier: z.boolean().default(true),
     enableSteeringSoftInterrupt: z.boolean().default(true),

@@ -31,6 +31,7 @@ import {
 import type { FastAgent } from "./agent.js";
 import { getCancelCause } from "./agent.js";
 import { AssistantStreamAttempt } from "./stream.js";
+import { resolveMaxParallel } from "./types.js";
 import {
   SystemPromptProjection,
   RuntimeContextProjection
@@ -759,7 +760,7 @@ export class FastLoopDriver {
     signal: AbortSignal,
     acceptContext: (context: unknown) => void
   ): Promise<{ concluded: boolean }> {
-    const maxParallelToolCalls = this.agent.loopConfig?.maxParallelToolCalls ?? 10;
+    const maxParallelToolCalls = resolveMaxParallel(this.agent.loopConfig);
     const planned = toolCalls.map((block) => ({
       block,
       exec: {

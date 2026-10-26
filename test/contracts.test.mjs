@@ -132,3 +132,27 @@ test("Contract 4: Phase wake latching when running guarantees subsequent message
   assert.equal(agent.inbox.hasPending, true, "inbox must retain the incoming message");
 });
 
+test("Contract 5: resolveMaxParallel supports dynamic volatile getters and plain numbers", async () => {
+  const { resolveMaxParallel } = await import("../lib/types.js");
+
+  // Default fallback
+  assert.equal(resolveMaxParallel(undefined), 10);
+  assert.equal(resolveMaxParallel({}), 10);
+
+  // Plain number
+  assert.equal(resolveMaxParallel({ maxParallelToolCalls: 4 }), 4);
+
+  // Dynamic volatile getter
+  let currentCap = 7;
+  const volatileConfig = {
+    maxParallelToolCalls: {
+      get: () => currentCap
+    }
+  };
+  assert.equal(resolveMaxParallel(volatileConfig), 7);
+
+  // Dynamic update without restarting or recreating config
+  currentCap = 15;
+  assert.equal(resolveMaxParallel(volatileConfig), 15);
+});
+

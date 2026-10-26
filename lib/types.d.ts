@@ -1,7 +1,9 @@
 import type { AgentOptions } from "@deepseek-ai/dsh-agent";
 import type { SessionId } from "@deepseek-ai/dsh-session/types";
 export interface FastLoopConfig {
-    maxParallelToolCalls?: number;
+    maxParallelToolCalls?: number | {
+        get(): number;
+    };
     enableStreamingTools?: boolean;
     enablePathAwareBarrier?: boolean;
     enableSteeringSoftInterrupt?: boolean;
@@ -12,6 +14,7 @@ export interface FastLoopConfig {
         resumeSessionId?: SessionId;
     })[];
 }
+export declare function resolveMaxParallel(config?: FastLoopConfig): number;
 export type AgentPhase = {
     kind: "idle";
     lastTurn: number;

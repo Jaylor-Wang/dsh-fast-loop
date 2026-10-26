@@ -6,7 +6,19 @@ import type { FastLoopConfig } from "./types.js";
 export declare class FastAgentLoop extends Service implements AgentFactory {
     readonly config: FastLoopConfig;
     static inject: string[];
-    static Config: z<FastLoopConfig, FastLoopConfig>;
+    static Config: z<Schemastery.ObjectS<NoInfer<{
+        maxParallelToolCalls: z<number, number, "volatile-defined">;
+        enableStreamingTools: z<boolean, boolean, "defined">;
+        enablePathAwareBarrier: z<boolean, boolean, "defined">;
+        enableSteeringSoftInterrupt: z<boolean, boolean, "defined">;
+        agents: z<any[], any[], "defined">;
+    }>>, Schemastery.ObjectT<NoInfer<{
+        maxParallelToolCalls: z<number, number, "volatile-defined">;
+        enableStreamingTools: z<boolean, boolean, "defined">;
+        enablePathAwareBarrier: z<boolean, boolean, "defined">;
+        enableSteeringSoftInterrupt: z<boolean, boolean, "defined">;
+        agents: z<any[], any[], "defined">;
+    }>>, "plain">;
     /** Plain holder prevents Cordis from re-tracing the factory's dependency context through a caller shadow. */
     private readonly runtime;
     private readonly activeTeardowns;
