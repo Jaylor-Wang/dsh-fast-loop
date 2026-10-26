@@ -156,3 +156,211 @@ test("Contract 5: resolveMaxParallel supports dynamic volatile getters and plain
   assert.equal(resolveMaxParallel(volatileConfig), 15);
 });
 
+test("Contract 6: getCancelCause strips extraneous fetch stack properties via whitelist copy", async () => {
+  const { getCancelCause } = await import("../lib/agent.js");
+
+  const ctrl1 = new AbortController();
+  const pollutedUserReason = {
+    kind: "user",
+    stack: "Error: aborted\n    at node:internal/deps/undici/undici:1234:11",
+    extraField: "should-be-removed"
+  };
+  ctrl1.abort(pollutedUserReason);
+  const clean1 = getCancelCause(ctrl1.signal);
+  assert.deepEqual(clean1, { kind: "user" });
+  assert.equal("stack" in clean1, false);
+
+  const ctrl2 = new AbortController();
+  ctrl2.abort({
+    kind: "hook",
+    reason: "budget exceeded",
+    stack: "Error: hook abort stack"
+  });
+  const clean2 = getCancelCause(ctrl2.signal);
+  assert.deepEqual(clean2, { kind: "hook", reason: "budget exceeded" });
+  assert.equal("stack" in clean2, false);
+});
+
+test("Contract 7: requestProposal strips adapterDefaults for maxTokens and reasoningEffort", async () => {
+  const { requestProposal } = await import("../lib/loop.js");
+
+  const headerWithDefaults = {
+    config: {
+      provider: "google-antigravity",
+      model: "antigravity-gemini-3.8-flash",
+      reasoningEffort: "high",
+      maxTokens: 65536
+    },
+    adapterDefaults: {
+      maxTokens: true
+    }
+  };
+  const proposal1 = requestProposal(headerWithDefaults);
+  assert.deepEqual(proposal1, {
+    provider: "google-antigravity",
+    model: "antigravity-gemini-3.8-flash",
+    reasoningEffort: "high"
+  });
+  assert.equal("maxTokens" in proposal1, false);
+
+  const headerBothDefaults = {
+    config: {
+      provider: "deepseek",
+      model: "deepseek-reasoner",
+      reasoningEffort: "medium",
+      maxTokens: 32768
+    },
+    adapterDefaults: {
+      reasoningEffort: true,
+      maxTokens: true
+    }
+  };
+  const proposal2 = requestProposal(headerBothDefaults);
+  assert.deepEqual(proposal2, {
+    provider: "deepseek",
+    model: "deepseek-reasoner"
+  });
+});
+
+test("Contract 8: FastLoopDriver automatically retries transient TIMEOUT stream failure when provider maxRetries is 0", async () => {
+  const { FastLoopDriver } = await import("../lib/loop.js");
+  const { createUserMessage } = await import("@deepseek-ai/dsh-llm");
+
+  const appendedEvents = [];
+  let seqCounter = 0;
+  let currentHeader;
+  let currentContext;
+
+  const session = {
+    id: SessionId("test-timeout-retry"),
+    surface: {
+      nodes: [],
+      contentGeneration: 1
+    },
+    append(type, data) {
+      const seq = ++seqCounter;
+      appendedEvents.push({ seq, type, data });
+      if (type === "request/header") currentHeader = data.header;
+      if (type === "request/context") currentContext = data;
+      return { seq, type, data };
+    },
+    eventAt(seq) {
+      return appendedEvents.find((e) => e.seq === seq);
+    },
+    snapshotEvents() {
+      return appendedEvents;
+    },
+    requestHeader() {
+      return currentHeader;
+    },
+    requestContext() {
+      return currentContext;
+    },
+    deriveMessages() {
+      return [];
+    },
+    toolHistory() {
+      return [];
+    }
+  };
+
+  let streamCallCount = 0;
+  const mockPreparedCall = {
+    config: {
+      provider: "google-antigravity",
+      model: "antigravity-gemini-3.8-flash",
+      reasoningEffort: "high",
+      maxTokens: 65536
+    },
+    adapterDefaults: { maxTokens: true },
+    retryPolicy: { mode: "normal", maxRetries: 0, retryableCodes: ["TIMEOUT"] },
+    async *stream() {
+      streamCallCount++;
+      if (streamCallCount === 1) {
+        yield { type: "block-start", index: 0, blockType: "reasoning" };
+        yield { type: "reasoning-delta", index: 0, text: "Generating SVG..." };
+        yield {
+          type: "finish",
+          reason: {
+            kind: "error",
+            failure: {
+              message: "The Antigravity private request failed safely (TIMEOUT)",
+              code: "TIMEOUT"
+            }
+          }
+        };
+        return;
+      }
+      yield { type: "block-start", index: 0, blockType: "text" };
+      yield { type: "text-delta", index: 0, text: " SVG generated successfully!" };
+      yield {
+        type: "block-end",
+        index: 0,
+        block: { type: "text", text: " SVG generated successfully!" }
+      };
+      yield { type: "finish", reason: { kind: "stop" } };
+    }
+  };
+
+  const mockAgent = {
+    id: SessionId("test-timeout-retry"),
+    options: {
+      provider: "google-antigravity",
+      model: "antigravity-gemini-3.8-flash",
+      reasoningEffort: "high"
+    },
+    session,
+    loopConfig: {
+      maxTransientRetries: 2,
+      transientRetryDelayMs: 5
+    },
+    ctx: {
+      on: () => () => {}
+    },
+    loopCtx: {
+      systemPrompt: {
+        refreshContext: () => ({ contexts: [] })
+      },
+      llm: {
+        prepareCall: async () => mockPreparedCall
+      },
+      logger: () => ({ warn: () => {}, error: () => {} })
+    },
+    dispatch: {
+      emit: () => {},
+      waterfall: async (name, _payload, fallback) => {
+        if (name === "agent/request-error") {
+          // Simulate dsh-llm-retry returning undefined due to maxRetries: 0
+          return undefined;
+        }
+        return fallback();
+      }
+    }
+  };
+
+  const driver = new FastLoopDriver(mockAgent);
+  const userMsg = createUserMessage({
+    source: { kind: "user" },
+    content: [{ type: "text", text: "Draw pelican" }]
+  });
+
+  const outcome = await driver.runStep(
+    2,
+    24,
+    { kind: "enter", messages: [userMsg] },
+    { sections: [], tools: [] },
+    new AbortController().signal
+  );
+
+  assert.deepEqual(outcome, { kind: "completed" });
+  assert.equal(streamCallCount, 2, "Driver must retry once after transient TIMEOUT");
+
+  const attempts = appendedEvents.filter((e) => e.type === "assistant/attempt");
+  const messages = appendedEvents.filter((e) => e.type === "assistant/message");
+  const headers = appendedEvents.filter((e) => e.type === "request/header");
+
+  assert.equal(attempts.length, 1, "First failed attempt must be recorded as assistant/attempt");
+  assert.equal(messages.length, 1, "Second succeeded attempt must be recorded as assistant/message");
+  assert.equal(headers.length, 1, "Retry with adapterDefaults must not log redundant change header");
+});
+

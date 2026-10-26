@@ -13,6 +13,16 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
+## Highlights in v0.5.0
+
+- **Built-In Transient Stream Timeout & Network Auto-Retry**: Automatically recovers from mid-turn transient stream failures (`TIMEOUT`, `TRANSPORT`, `UPSTREAM`, `EMPTY_RESPONSE`, `STREAM_ERROR`) with abort-aware exponential backoff (`maxTransientRetries`, default `2`), rescuing long multi-step turns even when upstream adapters enforce `maxRetries: 0`.
+- **Setup-Window Event Persistence (`appendUnstoredSuffix`)**: Durably flushes both constructor `seed` events and `setup()` window session events right before publication, preventing delegation policy or setup records from being lost across restarts while leaving zero uncommitted residue on setup failure.
+- **Adapter Defaults Stripping (`requestProposal`)**: Strips adapter-populated `maxTokens` and `reasoningEffort` defaults (`adapterDefaults`) before proposing subsequent `agent/request` configs, preventing redundant `request/header` change logs and cross-model default lock-in.
+- **Declarative `config.agents` Startup & Identity Validation**: Supports declarative startup/resume of configured agents, `CONFIGURED_AGENT_IDENTITIES_KEY` launcher overrides, and upfront identity conflict validation.
+- **Sanitized Cancel Causes & Dynamic Host Anchor Resolution**: Strips Node `fetch`/`undici` error stack pollution from `turn/end` cancel causes via whitelist shallow copy, and dynamically resolves global DSH host anchors across platforms without hardcoded paths.
+
+---
+
 ## Highlights in v0.4.6
 
 - **Native Web GUI Settings Card**: Seamlessly registers an interactive settings card in DSH General Settings (`通用设置`), offering a visual slider (1–32) and quick presets for `maxParallelToolCalls` without modifying DSH core code.
@@ -112,6 +122,7 @@ In `~/.dsh/profiles/web/cordis.patch.yml`, disable `agent-loop` and insert `dsh-
 | `enableStreamingTools` | `boolean` | `true` | Whether to enable streaming tool result delivery. |
 | `enablePathAwareBarrier` | `boolean` | `true` | Whether to enable Path-Aware Barrier for multi-file concurrent edits. |
 | `enableSteeringSoftInterrupt` | `boolean` | `true` | Whether to enable cooperative soft-interruption for wait tools upon incoming steer messages. |
+| `maxTransientRetries` | `number` | `2` | Maximum per-step fallback retries for transient stream timeouts or network failures. |
 | `agents` | `array` | `[]` | Static agent identity and configuration overrides. |
 ---
 

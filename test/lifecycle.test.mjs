@@ -229,3 +229,104 @@ test("6. Teardown closes persistence handle even if agent.whenIdle() throws", as
   await handle.dispose();
   assert.equal(env.handlesClosed.length, 1, "Persistence handle must still be closed even if whenIdle throws");
 });
+
+test("7. setup() window session events are durably flushed via appendUnstoredSuffix before publication", async () => {
+  const env = createMockEnvironment();
+  const appendedBatches = [];
+
+  env.mockPersistence.create = async (header) => {
+    const h = {
+      header,
+      inheritedEventCount: 0,
+      async read() {
+        return { events: [], eventState: {} };
+      },
+      async append(events) {
+        appendedBatches.push(...events);
+      },
+      async close() {
+        env.handlesClosed.push(h);
+      }
+    };
+    env.handlesCreated.push(h);
+    return h;
+  };
+
+  env.ctx.sessions.prepare = (id, opts) => {
+    const events = [...(opts?.seed ?? [])];
+    let seq = events.length;
+    return {
+      id: SessionId(id),
+      header: { id: SessionId(id) },
+      inheritedEventCount: 0,
+      surface: { nodes: [] },
+      append(type, data) {
+        const ev = { seq: ++seq, type, data };
+        events.push(ev);
+        return ev;
+      },
+      snapshotEvents(fromOffset = 0) {
+        return events.slice(Number(fromOffset));
+      }
+    };
+  };
+
+  const loop = new FastAgentLoop(env.ctx);
+  const ownerCtx = new Context();
+
+  const handle = await loop.createAgent(ownerCtx, {
+    sessionId: SessionId("session-with-setup-events"),
+    seed: [{ seq: 1, type: "permission/preset", data: { preset: "danger-full-access" } }],
+    setup: async (_agentCtx, agent) => {
+      agent.session.append("delegation/policy", { mode: "subagent" });
+    }
+  });
+
+  assert.equal(appendedBatches.length, 2, "Both constructor seed and setup-window events must be persisted");
+  assert.equal(appendedBatches[0].type, "permission/preset");
+  assert.equal(appendedBatches[1].type, "delegation/policy");
+
+  await handle.dispose();
+});
+
+test("8. Declarative config.agents automatically starts configured agents and validates identity rules", async () => {
+  const env = createMockEnvironment();
+  const announcedAgents = [];
+  env.ctx.agents.announce = async (agent, source) => {
+    announcedAgents.push({ id: agent.id, source, options: agent.options });
+  };
+
+  // Conflict validation: mutually exclusive sessionId and resumeSessionId
+  assert.throws(
+    () =>
+      new FastAgentLoop(env.ctx, {
+        agents: [
+          {
+            id: "bad-agent",
+            sessionId: SessionId("s1"),
+            resumeSessionId: SessionId("s2")
+          }
+        ]
+      }),
+    /mutually exclusive/
+  );
+
+  // Valid declarative startup
+  const loop = new FastAgentLoop(env.ctx, {
+    agents: [
+      {
+        id: "main",
+        sessionId: SessionId("main-fixed-session"),
+        provider: "deepseek",
+        model: "deepseek-chat"
+      }
+    ]
+  });
+
+  // Wait briefly for async startup task
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(announcedAgents.length, 1);
+  assert.equal(announcedAgents[0].id, SessionId("main-fixed-session"));
+  assert.equal(announcedAgents[0].options.provider, "deepseek");
+  assert.ok(loop);
+});

@@ -21,7 +21,17 @@ export function getCancelCause(signal: AbortSignal): AgentCancelCause | undefine
   if (!signal.aborted) return undefined;
   const reason = signal.reason;
   if (reason && typeof reason === "object" && "kind" in reason) {
-    return reason as AgentCancelCause;
+    const kind = reason.kind;
+    if (kind === "user" || kind === "parent" || kind === "disposed") {
+      return { kind };
+    }
+    if (kind === "hook") {
+      const hookReason =
+        "reason" in reason && typeof reason.reason === "string"
+          ? reason.reason
+          : String("reason" in reason ? (reason.reason ?? "") : "");
+      return { kind: "hook", reason: hookReason };
+    }
   }
   return { kind: "disposed" };
 }

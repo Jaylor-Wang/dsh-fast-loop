@@ -13,6 +13,16 @@
 
 ---
 
+## v0.5.0 版本核心特性
+
+- **内置流式超时与瞬态网络错误兜底重试**：当上游适配器（如 Antigravity）硬编码 `maxRetries: 0` 导致官方重试插件失效时，自动对 `TIMEOUT`、`TRANSPORT`、`UPSTREAM`、`EMPTY_RESPONSE`、`STREAM_ERROR` 等瞬态中断执行支持信号中断的指数退避重试（`maxTransientRetries` 默认 `2` 次），彻底杜绝长任务在最后一步因流超时而功亏一篑。
+- **Setup 窗口期事件完整落盘（`appendUnstoredSuffix`）**：对齐官方持久化事务边界，在 `setup()` 钩子提交后、正式发布前统一将构造 `seed` 与 `setup` 期间写入的会话事件（如子 Agent 委派策略记录）刷入磁盘，且在 `setup` 失败回滚时不留任何未提交残余。
+- **适配器默认参数剥离（`requestProposal`）**：在发起后续步骤的 `agent/request` 前自动剥离上次由适配器填充的默认 `maxTokens` 与 `reasoningEffort`（`adapterDefaults`），消除跨轮次多余的 `request/header (reason: "change")` 记录以及切换模型时的默认参数锁死。
+- **声明式 `config.agents` 自动拉起与身份校验**：完整支持配置文件声明式 Agent 的自动创建/恢复、`CONFIGURED_AGENT_IDENTITIES_KEY` 启动器身份覆盖及互斥/重复身份前置校验。
+- **取消原因栈污染净化与跨平台宿主动态寻址**：对 `getCancelCause` 执行字段白名单浅拷贝，剥离 Node `fetch` 注入的 `stack` 属性污染；移除本地路径硬编码，支持跨平台动态推导全局 DSH 宿主锚点。
+
+---
+
 ## v0.4.6 版本核心特性
 
 - **Web 界面原生设置卡片**：在 DSH 设置（通用设置）中无缝集成 `dsh-fast-loop` 配置卡片，提供最大工具并发数（`maxParallelToolCalls`，范围 1～32）可视化滑块与预设按钮，完全无需修改 DSH 核心源码。
@@ -112,6 +122,7 @@ npx dsh-fast-loop status
 | `enableStreamingTools` | `boolean` | `true` | 是否启用工具执行结果流式推送。 |
 | `enablePathAwareBarrier` | `boolean` | `true` | 是否启用路径级读写并发屏障（多文件并发编辑）。 |
 | `enableSteeringSoftInterrupt` | `boolean` | `true` | 是否启用长等待工具与 Steer 消息的协作式软打断。 |
+| `maxTransientRetries` | `number` | `2` | 单个 Step 遇到流式超时或瞬态网络错误时的最大自动兜底重试次数。 |
 | `agents` | `array` | `[]` | 静态声明的 Agent 标识符及个性化配置覆盖列表。 |
 ---
 

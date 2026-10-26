@@ -8,6 +8,7 @@ import {
   LlmError,
   markAgentLoopRequest,
   type LlmCallConfig,
+  type PreparedLlmCall,
   type ToolCallBlock,
   type UserMessage
 } from "@deepseek-ai/dsh-llm";
@@ -138,6 +139,51 @@ function parseToolArguments(raw: unknown): any {
   }
 }
 
+export function requestProposal(header: {
+  config: LlmCallConfig;
+  adapterDefaults?: { reasoningEffort?: boolean; maxTokens?: boolean };
+}): LlmCallConfig {
+  if (header.adapterDefaults === undefined) return header.config;
+  const proposal: LlmCallConfig = { ...header.config };
+  if (header.adapterDefaults.reasoningEffort === true) {
+    delete proposal.reasoningEffort;
+  }
+  if (header.adapterDefaults.maxTokens === true) {
+    delete proposal.maxTokens;
+  }
+  return proposal;
+}
+
+export const TRANSIENT_RETRYABLE_CODES = new Set([
+  "TIMEOUT",
+  "TRANSPORT",
+  "UPSTREAM",
+  "EMPTY_RESPONSE",
+  "STREAM_ERROR"
+]);
+
+export function isTransientRetryableFailure(code: unknown): boolean {
+  return typeof code === "string" && TRANSIENT_RETRYABLE_CODES.has(code);
+}
+
+async function waitAbortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (delayMs <= 0) {
+    signal.throwIfAborted();
+    return;
+  }
+  signal.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new Error("Aborted during retry backoff"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
 export class FastLoopDriver {
   private assistantStreamRevision = 0;
   private assistantAttemptCounter = 0;
@@ -148,6 +194,7 @@ export class FastLoopDriver {
   private runtimeContext: RuntimeContextProjection;
 
   constructor(private readonly agent: FastAgent) {
+    this.requestSurfaceGeneration = agent.session?.surface?.contentGeneration ?? 0;
     this.systemPrompt = new SystemPromptProjection(agent.session);
     this.runtimeContext = new RuntimeContextProjection(agent.ctx, agent.session);
   }
@@ -334,9 +381,11 @@ export class FastLoopDriver {
   ): Promise<TurnEndReason | null> {
     const renderedPrompt = assembly?.sections ? renderPrompt(assembly) : "";
     let firstAttempt = true;
+    let stepAttempts = 0;
 
     while (true) {
       signal.throwIfAborted();
+      stepAttempts++;
       const { config, preparedCall } = await this.prepareRequest(turn, step, signal);
 
       // Refresh context sections after request resolution
@@ -471,7 +520,8 @@ export class FastLoopDriver {
       ) {
         this.agent.session.append("request/context", requestContext);
       }
-
+      signal.throwIfAborted();
+      deepFreeze(header);
       const boundaryMessages = this.agent.session.deriveMessages();
       for (const m of boundaryMessages) {
         if (!this.frozenMessages.has(m)) {
@@ -565,16 +615,21 @@ export class FastLoopDriver {
             }).seq
           );
 
+          const errorCode =
+            error && typeof error === "object" && "code" in error && typeof error.code === "string"
+              ? error.code
+              : "STREAM_ERROR";
+          const failure = {
+            message: error instanceof Error ? error.message : String(error),
+            code: errorCode
+          };
           const action = await this.agent.dispatch.waterfall(
             "agent/request-error",
             {
               turn,
               step,
               provider: request.provider,
-              failure: {
-                message: error instanceof Error ? error.message : String(error),
-                code: (error as any)?.code ?? "STREAM_ERROR"
-              },
+              failure,
               retryPolicy: preparedCall?.retryPolicy,
               signal
             },
@@ -582,7 +637,17 @@ export class FastLoopDriver {
           );
 
           signal.throwIfAborted();
-          if ((action as any)?.kind === "retry") {
+          if (
+            action &&
+            typeof action === "object" &&
+            "kind" in action &&
+            action.kind === "retry"
+          ) {
+            continue;
+          }
+          if (
+            await this.tryTransientFallbackRetry(turn, step, stepAttempts, failure.code, signal)
+          ) {
             continue;
           }
           throw error;
@@ -613,7 +678,24 @@ export class FastLoopDriver {
           );
 
           signal.throwIfAborted();
-          if ((action as any)?.kind === "retry") {
+          if (
+            action &&
+            typeof action === "object" &&
+            "kind" in action &&
+            action.kind === "retry"
+          ) {
+            continue;
+          }
+          if (
+            finish.kind === "error" &&
+            (await this.tryTransientFallbackRetry(
+              turn,
+              step,
+              stepAttempts,
+              finish.failure?.code,
+              signal
+            ))
+          ) {
             continue;
           }
           throw new LlmError(finish.failure.message, finish.failure.code, finish.failure);
@@ -681,12 +763,41 @@ export class FastLoopDriver {
       }
     }
   }
+  private async tryTransientFallbackRetry(
+    turn: number,
+    step: number,
+    stepAttempts: number,
+    failureCode: unknown,
+    signal: AbortSignal
+  ): Promise<boolean> {
+    if (signal.aborted) return false;
+    const maxRetries = this.agent.loopConfig?.maxTransientRetries ?? 2;
+    if (maxRetries <= 0 || stepAttempts > maxRetries) return false;
+    if (!isTransientRetryableFailure(failureCode)) return false;
+
+    const baseDelay = this.agent.loopConfig?.transientRetryDelayMs ?? 1000;
+    const delayMs = Math.min(
+      baseDelay * 2 ** (stepAttempts - 1),
+      Math.max(baseDelay * 4, 4000)
+    );
+    try {
+      this.agent.loopCtx
+        .logger("fast-loop")
+        .warn(
+          `FastLoopDriver [turn=${turn}, step=${step}] transient failure (${String(failureCode)}), fallback retry ${stepAttempts}/${maxRetries} after ${delayMs}ms`
+        );
+    } catch {
+      // ignore logger failure
+    }
+    await waitAbortableDelay(delayMs, signal);
+    return !signal.aborted;
+  }
 
   private async prepareRequest(
     turn: number,
     step: number,
     signal: AbortSignal
-  ): Promise<{ config: LlmCallConfig; preparedCall?: any }> {
+  ): Promise<{ config: LlmCallConfig; preparedCall?: PreparedLlmCall }> {
     const { session } = this.agent;
     const persistedHeader = session.requestHeader();
     const persistedConfig = persistedHeader?.config;
@@ -700,15 +811,24 @@ export class FastLoopDriver {
       persistedHeader?.adapterDefaults?.reasoningEffort !== true
         ? persistedConfig.reasoningEffort
         : undefined;
+    const persistedMaxTokens =
+      persistedConfig?.provider === route.provider &&
+      persistedConfig?.model === route.model &&
+      persistedHeader?.adapterDefaults?.maxTokens !== true
+        ? persistedConfig.maxTokens
+        : undefined;
     const reasoningEffort = this.agent.options.reasoningEffort ?? persistedReasoningEffort;
-    const maxTokens = this.agent.options.maxTokens ?? persistedConfig?.maxTokens;
+    const maxTokens = this.agent.options.maxTokens ?? persistedMaxTokens;
 
-    const seedConfig = deepFreeze({
-      ...route,
-      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
-      ...(maxTokens !== undefined ? { maxTokens } : {})
-    });
-
+    const baseSeed =
+      this.requestHeaderLogged && persistedHeader !== undefined
+        ? requestProposal(persistedHeader)
+        : {
+            ...route,
+            ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+            ...(maxTokens !== undefined ? { maxTokens } : {})
+          };
+    const seedConfig = deepFreeze(structuredClone(baseSeed));
     const proposedConfig = await this.agent.dispatch.waterfall(
       "agent/request",
       {
@@ -728,7 +848,7 @@ export class FastLoopDriver {
     }
 
     let config: LlmCallConfig;
-    let preparedCall: any;
+    let preparedCall: PreparedLlmCall | undefined;
     try {
       preparedCall = await this.agent.loopCtx.llm.prepareCall(proposedConfig, signal);
       config = preparedCall.config;

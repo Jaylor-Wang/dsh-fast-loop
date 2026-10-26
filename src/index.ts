@@ -2,7 +2,7 @@ import { Service, type Context } from "@deepseek-ai/cordis";
 import type {
   AgentFactory,
   AgentHandle,
-  AgentSetupCommit,
+  AgentOptions,
   CreateAgentOptions,
   ResumeAgentOptions
 } from "@deepseek-ai/dsh-agent";
@@ -17,7 +17,78 @@ import type { SessionHandle, SessionPersistence } from "@deepseek-ai/dsh-session
 import z from "@deepseek-ai/schemastery";
 import { turnBoundaryProjectionDefinition, inboxProjectionDefinition } from "./projections.js";
 import { FastAgent } from "./agent.js";
-import type { FastLoopConfig } from "./types.js";
+import type {
+  ConfiguredAgentEntry,
+  ConfiguredAgentIdentities,
+  FastLoopConfig
+} from "./types.js";
+
+export const DEFAULT_MAX_PARALLEL_TOOL_CALLS = 10;
+export const CONFIGURED_AGENT_IDENTITIES_KEY = "configuredAgentIdentities";
+
+interface StoredSession {
+  handle: SessionHandle;
+  storedCount: number;
+}
+
+function mintUuid(): string {
+  const gCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (typeof gCrypto?.randomUUID === "function") {
+    return gCrypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+export function assertAgentOptions(options?: AgentOptions): void {
+  if (
+    options?.maxTokens !== undefined &&
+    (!Number.isSafeInteger(options.maxTokens) || options.maxTokens <= 0)
+  ) {
+    throw new TypeError("agent maxTokens must be a positive safe integer");
+  }
+}
+
+export function applyLauncherIdentities(
+  agents: readonly ConfiguredAgentEntry[] | undefined,
+  identities?: ConfiguredAgentIdentities
+): ConfiguredAgentEntry[] {
+  if (!agents || agents.length === 0) return [];
+  if (identities === undefined) return [...agents];
+  return agents.map((agent) => {
+    const identity = identities[agent.id];
+    if (identity === undefined) return agent;
+    const { sessionId: _sessionId, resumeSessionId: _resumeSessionId, ...rest } = agent;
+    return identity.resume
+      ? { ...rest, resumeSessionId: identity.id }
+      : { ...rest, sessionId: identity.id };
+  });
+}
+
+export function validateConfiguredAgents(agents: readonly ConfiguredAgentEntry[]): void {
+  const exactIdentities = new Map<string, string>();
+  for (const { id, sessionId, resumeSessionId, ...rest } of agents) {
+    assertAgentOptions(rest);
+    const hasResumeId = resumeSessionId !== undefined && String(resumeSessionId).length > 0;
+    if (sessionId !== undefined && hasResumeId) {
+      throw new Error(`agent "${id}": sessionId and resumeSessionId are mutually exclusive`);
+    }
+    const exactIdentity = hasResumeId ? resumeSessionId : sessionId;
+    if (exactIdentity === undefined) continue;
+    const firstId = exactIdentities.get(exactIdentity);
+    if (firstId !== undefined) {
+      throw new Error(
+        `agents "${firstId}" and "${id}" use duplicate exact session identity "${exactIdentity}"`
+      );
+    }
+    exactIdentities.set(exactIdentity, id);
+  }
+}
+
+function isSessionNotFoundError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "SessionPersistenceNotFoundError") return true;
+  if ("code" in error && (error.code === "NOT_FOUND" || error.code === "ENOENT")) return true;
+  return false;
+}
 
 export class FastAgentLoop extends Service implements AgentFactory {
   static inject = [
@@ -30,48 +101,195 @@ export class FastAgentLoop extends Service implements AgentFactory {
   ];
 
   static Config = z.object({
-    maxParallelToolCalls: z.number().step(1).min(1).default(10).volatile(),
+    maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
     enableStreamingTools: z.boolean().default(true),
     enablePathAwareBarrier: z.boolean().default(true),
     enableSteeringSoftInterrupt: z.boolean().default(true),
+    maxTransientRetries: z.number().step(1).min(0).default(2),
     agents: z.array(z.any()).default([])
   });
 
   /** Plain holder prevents Cordis from re-tracing the factory's dependency context through a caller shadow. */
   private readonly runtime: { ctx: Context };
   private readonly activeTeardowns = new Set<() => Promise<void>>();
+  private readonly startupTasks = new Set<Promise<unknown>>();
+  public readonly config: FastLoopConfig;
 
-  constructor(ctx: Context, public readonly config: FastLoopConfig = {}) {
+  constructor(ctx: Context, config: FastLoopConfig = {}) {
+    const rawIdentities =
+      typeof ctx.get === "function"
+        ? (ctx.get(CONFIGURED_AGENT_IDENTITIES_KEY as never) as ConfiguredAgentIdentities | undefined)
+        : undefined;
+    const configuredAgents = applyLauncherIdentities(config.agents, rawIdentities);
+    validateConfiguredAgents(configuredAgents);
+
     super(ctx, "agentLoop");
     this.runtime = { ctx };
+    this.config = {
+      ...config,
+      agents: configuredAgents
+    };
 
     ctx.effect(function* () {
       const unregisterTurnBoundary = ctx.sessionProjections.register(turnBoundaryProjectionDefinition);
       yield unregisterTurnBoundary;
       // Unchecked cast on complex recursive sessionProjections.register wire schema
-      const unregisterInbox = ctx.sessionProjections.register(inboxProjectionDefinition as any);
+      const reg = ctx.sessionProjections.register as (def: unknown) => () => void;
+      const unregisterInbox = reg(inboxProjectionDefinition);
       yield unregisterInbox;
     }, "fastAgentLoop.projections()");
 
     ctx.effect(() => ctx.agents.setFactory(this), "fastAgentLoop.setFactory()");
 
     const activeTeardowns = this.activeTeardowns;
+    const startupTasks = this.startupTasks;
     ctx.effect(function* () {
       yield async () => {
         const teardowns = Array.from(activeTeardowns);
+        const startups = Array.from(startupTasks);
         activeTeardowns.clear();
-        await Promise.allSettled(teardowns.map((td) => td()));
+        startupTasks.clear();
+        await Promise.allSettled([...teardowns.map((td) => td()), ...startups]);
       };
     }, "fastAgentLoop.activeSessions()");
 
     ctx.systemPrompt.variable("provider", (context: { agent?: { options?: { provider?: string } } }) => context.agent?.options?.provider);
     ctx.systemPrompt.variable("model", (context: { agent?: { options?: { model?: string } } }) => context.agent?.options?.model);
+
+    for (const { id, sessionId, cwd, resumeSessionId, ...options } of configuredAgents) {
+      const meta = cwd === undefined ? undefined : { cwd };
+      const hasResumeId = resumeSessionId !== undefined && String(resumeSessionId).length > 0;
+      if (!hasResumeId) {
+        // Branded SessionId minting for fresh declarative sessions without explicit sessionId
+        const configuredId = (sessionId ?? `${id}-session-${mintUuid()}`) as SessionId;
+        const persistence =
+          sessionId === undefined
+            ? undefined
+            : (ctx.get?.("sessionPersistence") as SessionPersistence | undefined);
+        const job = (
+          persistence === undefined
+            ? this.createAgent(ctx, {
+                sessionId: configuredId,
+                agentOptions: options,
+                ...(meta !== undefined ? { meta } : {})
+              })
+            : this.restoreOrCreateConfigured(ctx, configuredId, options, meta)
+        ).then(
+          () => undefined,
+          (error: unknown) => {
+            this.reportConfiguredStartupFailure(id, "restore", configuredId, error);
+          }
+        );
+        this.trackStartup(job);
+        continue;
+      }
+
+      const existingPersistence = ctx.get?.("sessionPersistence") as SessionPersistence | undefined;
+      if (existingPersistence !== undefined || typeof ctx.inject !== "function") {
+        const job = this.resume(ctx, {
+          resumeSessionId,
+          agentOptions: options
+        }).then(
+          () => undefined,
+          (error: unknown) => {
+            this.reportConfiguredStartupFailure(id, "resume", resumeSessionId, error);
+          }
+        );
+        this.trackStartup(job);
+      } else {
+        ctx.effect(() => {
+          return ctx.inject(["sessionPersistence"], () => {
+            const job = this.resume(ctx, {
+              resumeSessionId,
+              agentOptions: options
+            }).then(
+              () => undefined,
+              (error: unknown) => {
+                this.reportConfiguredStartupFailure(id, "resume", resumeSessionId, error);
+              }
+            );
+            this.trackStartup(job);
+          }).dispose;
+        }, `fastAgentLoop.resume(${id})`);
+      }
+    }
+  }
+
+  private trackStartup(job: Promise<unknown>): void {
+    this.startupTasks.add(job);
+    const forget = () => {
+      this.startupTasks.delete(job);
+    };
+    job.then(forget, forget);
+  }
+
+  private reportConfiguredStartupFailure(
+    configId: string,
+    action: "restore" | "resume",
+    sessionId: SessionId,
+    error: unknown
+  ): void {
+    const msg = error instanceof Error ? error.message : String(error);
+    try {
+      this.runtime.ctx.logger("fast-loop").warn(
+        `agent "${configId}": config-driven ${action} of "${sessionId}" failed: ${msg}`
+      );
+    } catch {
+      // ignore logger failure
+    }
+    const ctxWithEvents = this.runtime.ctx as Context & {
+      events?: { dispatch?: (type: string, args: unknown[]) => Iterable<(...a: unknown[]) => unknown> };
+    };
+    if (typeof ctxWithEvents.events?.dispatch === "function") {
+      const args = ["agent-loop/config-start-failed", { sessionId, error }];
+      for (const callback of ctxWithEvents.events.dispatch("emit", args)) {
+        try {
+          Promise.resolve(callback(...args)).catch(() => {});
+        } catch {
+          // ignore listener failure
+        }
+      }
+    }
+  }
+
+  private async restoreOrCreateConfigured(
+    ownerCtx: Context,
+    sessionId: SessionId,
+    agentOptions: AgentOptions,
+    meta?: { cwd: string }
+  ): Promise<AgentHandle> {
+    try {
+      return await this.resume(ownerCtx, {
+        resumeSessionId: sessionId,
+        agentOptions
+      });
+    } catch (error) {
+      if (!isSessionNotFoundError(error)) throw error;
+    }
+    return await this.createAgent(ownerCtx, {
+      sessionId,
+      agentOptions,
+      ...(meta !== undefined ? { meta } : {})
+    });
+  }
+
+  private async appendUnstoredSuffix(
+    stored: StoredSession | undefined,
+    session: Session
+  ): Promise<void> {
+    if (stored === undefined) return;
+    const suffix = session.snapshotEvents(SessionLogOffset(stored.storedCount));
+    if (suffix.length > 0) {
+      await stored.handle.append(suffix);
+      stored.storedCount += suffix.length;
+    }
   }
 
   async createAgent(ownerCtx: Context, options: CreateAgentOptions): Promise<AgentHandle> {
+    assertAgentOptions(options.agentOptions);
     const loopCtx = this.runtime.ctx;
     let preparation: SessionPreparation | undefined;
-    let handle: SessionHandle | undefined;
+    let stored: StoredSession | undefined;
     let published = false;
 
     try {
@@ -88,16 +306,12 @@ export class FastAgentLoop extends Service implements AgentFactory {
       const session = preparation.session;
       const persistence = loopCtx.get("sessionPersistence") as SessionPersistence | undefined;
       if (persistence) {
-        handle = await persistence.create(session.header, {
+        const handle = await persistence.create(session.header, {
           inheritedEventCount: session.inheritedEventCount,
           ...(options.signal ? { signal: options.signal } : {})
         });
-        const suffix = session.snapshotEvents(SessionLogOffset(0));
-        if (suffix.length > 0) {
-          await handle.append(suffix);
-        }
+        stored = { handle, storedCount: 0 };
       }
-
       const agent = new FastAgent(
         loopCtx,
         options.sessionId,
@@ -111,7 +325,7 @@ export class FastAgentLoop extends Service implements AgentFactory {
         options.sessionId,
         agent,
         session,
-        handle,
+        stored,
         options,
         "startup"
       );
@@ -120,14 +334,15 @@ export class FastAgentLoop extends Service implements AgentFactory {
     } finally {
       if (!published) {
         preparation?.[Symbol.dispose]?.();
-        if (handle) {
-          await handle.close().catch(() => {});
+        if (stored) {
+          await stored.handle.close().catch(() => {});
         }
       }
     }
   }
 
   async resume(ownerCtx: Context, options: ResumeAgentOptions): Promise<AgentHandle> {
+    assertAgentOptions(options.agentOptions);
     const loopCtx = this.runtime.ctx;
     const persistence = loopCtx.get("sessionPersistence") as SessionPersistence | undefined;
     if (!persistence) {
@@ -135,13 +350,13 @@ export class FastAgentLoop extends Service implements AgentFactory {
     }
 
     let preparation: SessionPreparation | undefined;
-    let handle: SessionHandle | undefined;
+    let stored: StoredSession | undefined;
     let published = false;
-
     try {
-      handle = await persistence.open(options.resumeSessionId, "write", {
+      const handle = await persistence.open(options.resumeSessionId, "write", {
         ...(options.signal ? { signal: options.signal } : {})
       });
+      stored = { handle, storedCount: 0 };
 
       const coldRead = await handle.read(0, undefined, {
         ...(options.signal ? { signal: options.signal } : {})
@@ -151,6 +366,7 @@ export class FastAgentLoop extends Service implements AgentFactory {
       if (closers.length > 0) {
         await handle.append(closers);
       }
+      stored.storedCount = persisted.length + closers.length;
 
       preparation = SessionPreparation.create(
         loopCtx.sessions.prepare(options.resumeSessionId, {
@@ -162,12 +378,7 @@ export class FastAgentLoop extends Service implements AgentFactory {
       );
 
       const session = preparation.session;
-      const suffix = session.snapshotEvents(
-        SessionLogOffset(persisted.length + closers.length)
-      );
-      if (suffix.length > 0) {
-        await handle.append(suffix);
-      }
+      await this.appendUnstoredSuffix(stored, session);
 
       const agent = new FastAgent(
         loopCtx,
@@ -182,7 +393,7 @@ export class FastAgentLoop extends Service implements AgentFactory {
         options.resumeSessionId,
         agent,
         session,
-        handle,
+        stored,
         options,
         "resume"
       );
@@ -191,8 +402,8 @@ export class FastAgentLoop extends Service implements AgentFactory {
     } finally {
       if (!published) {
         preparation?.[Symbol.dispose]?.();
-        if (handle) {
-          await handle.close().catch(() => {});
+        if (stored) {
+          await stored.handle.close().catch(() => {});
         }
       }
     }
@@ -203,7 +414,7 @@ export class FastAgentLoop extends Service implements AgentFactory {
     id: SessionId,
     agent: FastAgent,
     session: Session,
-    handle: SessionHandle | undefined,
+    stored: StoredSession | undefined,
     options: CreateAgentOptions | ResumeAgentOptions,
     source: "startup" | "resume"
   ): Promise<AgentHandle> {
@@ -241,12 +452,14 @@ export class FastAgentLoop extends Service implements AgentFactory {
             commit &&
             typeof commit === "object" &&
             "commit" in commit &&
-            typeof (commit as AgentSetupCommit).commit === "function"
+            typeof commit.commit === "function"
           ) {
-            (commit as AgentSetupCommit).commit();
+            commit.commit();
           }
         });
       }
+      abortController.signal.throwIfAborted();
+      await this.appendUnstoredSuffix(stored, session);
       abortController.signal.throwIfAborted();
 
       detachSession = agent.ctx.sessions.enter(session);
@@ -288,8 +501,8 @@ export class FastAgentLoop extends Service implements AgentFactory {
           errors.push(err);
         }
         try {
-          if (handle) {
-            await handle.close();
+          if (stored) {
+            await stored.handle.close();
           }
         } catch (err) {
           errors.push(err);
@@ -336,7 +549,12 @@ export class FastAgentLoop extends Service implements AgentFactory {
   }
 }
 
-export { normalizeAssistantBlocks } from "./loop.js";
+export {
+  normalizeAssistantBlocks,
+  requestProposal,
+  isTransientRetryableFailure,
+  TRANSIENT_RETRYABLE_CODES
+} from "./loop.js";
 export * from "./barrier.js";
 export { turnBoundaryProjectionDefinition, inboxProjectionDefinition };
 export default FastAgentLoop;
