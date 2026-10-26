@@ -13,6 +13,14 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
+## Highlights in v0.4.6
+
+- **Native Web GUI Settings Card**: Seamlessly registers an interactive settings card in DSH General Settings (`通用设置`), offering a visual slider (1–32) and quick presets for `maxParallelToolCalls` without modifying DSH core code.
+- **Dynamic Volatile Store Sampling**: Concurrency limits dynamically resolve reactive state from client volatile stores or functions in real time without restarting the web service or refreshing the page.
+- **DSH Client Plugin Web Manifest**: Fully exports `./client` conforming to DSH client specifications, declaring `dsh.client` for the `web` platform with clean locale and settings dependencies.
+
+---
+
 ## Highlights in v0.4.5
 
 - **Strict Monotonic Stream Revisions & Terminal Guard**: Enforces monotonic assistant stream revisions with a terminal guard (`push`, `settle`, `abandon`), eliminating duplicate frames and preventing `RemoteStreamCarrierError: session assistant stream skipped revision` in DSH Web UI.
@@ -59,12 +67,18 @@ Switch between Fast Loop and Official Loop effortlessly without manual YAML edit
 
 ```sh
 # Enable dsh-fast-loop and disable official agent-loop
+dsh-fast-loop enable
+# or run without global install via npx:
 npx dsh-fast-loop enable
 
 # Restore official agent-loop and disable fast-loop
+dsh-fast-loop disable
+# or
 npx dsh-fast-loop disable
 
 # Check current active loop mode
+dsh-fast-loop status
+# or
 npx dsh-fast-loop status
 ```
 

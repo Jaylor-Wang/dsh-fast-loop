@@ -13,6 +13,14 @@
 
 ---
 
+## v0.4.6 版本核心特性
+
+- **Web 界面原生设置卡片**：在 DSH 设置（通用设置）中无缝集成 `dsh-fast-loop` 配置卡片，提供最大工具并发数（`maxParallelToolCalls`，范围 1～32）可视化滑块与预设按钮，完全无需修改 DSH 核心源码。
+- **动态 Volatile 响应式采样**：运行时动态采样配置支持函数与 Volatile 存储，在前端拖动滑块时即刻响应生效，无需刷新页面或重启服务。
+- **标准化 Client Plugin 导出规范**：遵循 DSH 客户端规范导出 `./client`，声明 `dsh.client` 与 `web` 平台依赖注入，保证零侵入式无缝装载。
+
+---
+
 ## v0.4.5 版本核心特性
 
 - **流式帧号严格单调递增与终止守卫**：引入 `AssistantStreamAttempt` 状态机终结守卫，杜绝重复发射帧与跳号，彻底消除前端因 `RemoteStreamCarrierError: session assistant stream skipped revision` 导致的白屏断流。
@@ -58,13 +66,19 @@ pnpm add dsh-fast-loop@latest
 内置 CLI 自动安全更新 `cordis.patch.yml`，彻底杜绝手写 YAML 缩进错误：
 
 ```sh
-# 启用 dsh-fast-loop 并禁用官方 loop
+# 启用 dsh-fast-loop 并禁用官方 agent-loop
+dsh-fast-loop enable
+# 或使用 npx 免安装直接执行：
 npx dsh-fast-loop enable
 
 # 一键回退至官方原生 agent-loop
+dsh-fast-loop disable
+# 或
 npx dsh-fast-loop disable
 
 # 查看当前激活模式
+dsh-fast-loop status
+# 或
 npx dsh-fast-loop status
 ```
 
