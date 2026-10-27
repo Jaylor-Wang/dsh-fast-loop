@@ -13,6 +13,13 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
+## Highlights in v0.5.1
+
+- **Strict `sessionProjections.register` Receiver Context & Wire Typing**: Natively types `inboxProjectionDefinition` as `Required<ProjectionDefinition<"inbox", InboxState>>`, enabling direct `ctx.sessionProjections.register(inboxProjectionDefinition)` invocation without intermediate function extraction or `any` casts—eliminating `this.ctx` binding loss and `"no agent factory registered"` session resume failures.
+- **Receiver-Context Regression Guard**: Enforces `this.ctx` receiver verification directly inside the lifecycle test suite's projection registry mock to prevent unbound method regressions.
+
+---
+
 ## Highlights in v0.5.0
 
 - **Built-In Transient Stream Timeout & Network Auto-Retry**: Automatically recovers from mid-turn transient stream failures (`TIMEOUT`, `TRANSPORT`, `UPSTREAM`, `EMPTY_RESPONSE`, `STREAM_ERROR`) with abort-aware exponential backoff (`maxTransientRetries`, default `2`), rescuing long multi-step turns even when upstream adapters enforce `maxRetries: 0`.

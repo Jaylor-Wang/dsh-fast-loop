@@ -138,12 +138,7 @@ export const inboxProjectionDefinition = {
     view: (state: InboxState): InboxWireState => state as unknown as InboxWireState
   },
   stateVersion: 1
-} as unknown as ProjectionDefinition<"inbox", InboxState> & {
-  wire: {
-    viewSchema: typeof inboxProjectionSchema;
-    view(state: InboxState): InboxWireState;
-  };
-};
+} as unknown as Required<ProjectionDefinition<"inbox", InboxState>>;
 
 function textOfMessage(message: { content: readonly { type: string; text?: string }[] }): string | undefined {
   const block = message.content[0];

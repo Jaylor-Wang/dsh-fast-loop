@@ -13,6 +13,13 @@
 
 ---
 
+## v0.5.1 版本核心特性
+
+- **会话投影注册接收者上下文与类型根治**：将 `inboxProjectionDefinition` 导出类型精确收敛为 `Required<ProjectionDefinition<"inbox", InboxState>>`，直接通过 `ctx.sessionProjections.register(inboxProjectionDefinition)` 零转型调用，彻底杜绝因方法解构导致 `this.ctx` 丢失及引发的 `no agent factory registered` 会话恢复失败。
+- **生命周期测试接收者上下文强校验**：在测试套件 Mock 与专项回归用例中强制校验 `sessionProjections.register` 的 `this.ctx` 绑定，从测试防线封死同类回归问题。
+
+---
+
 ## v0.5.0 版本核心特性
 
 - **内置流式超时与瞬态网络错误兜底重试**：当上游适配器（如 Antigravity）硬编码 `maxRetries: 0` 导致官方重试插件失效时，自动对 `TIMEOUT`、`TRANSPORT`、`UPSTREAM`、`EMPTY_RESPONSE`、`STREAM_ERROR` 等瞬态中断执行支持信号中断的指数退避重试（`maxTransientRetries` 默认 `2` 次），彻底杜绝长任务在最后一步因流超时而功亏一篑。

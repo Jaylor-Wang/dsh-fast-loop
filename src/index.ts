@@ -133,9 +133,7 @@ export class FastAgentLoop extends Service implements AgentFactory {
     ctx.effect(function* () {
       const unregisterTurnBoundary = ctx.sessionProjections.register(turnBoundaryProjectionDefinition);
       yield unregisterTurnBoundary;
-      // Unchecked cast on complex recursive sessionProjections.register wire schema
-      const reg = ctx.sessionProjections.register as (def: unknown) => () => void;
-      const unregisterInbox = reg(inboxProjectionDefinition);
+      const unregisterInbox = ctx.sessionProjections.register(inboxProjectionDefinition);
       yield unregisterInbox;
     }, "fastAgentLoop.projections()");
 

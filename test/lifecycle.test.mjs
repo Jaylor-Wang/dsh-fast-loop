@@ -75,7 +75,14 @@ function createMockEnvironment() {
 
   ctx.provide("sessionProjections");
   ctx.sessionProjections = {
-    register() {
+    ctx,
+    register(definition) {
+      if (!this || !this.ctx) {
+        throw new TypeError("Cannot read properties of undefined (reading 'ctx')");
+      }
+      if (!definition || typeof definition.key !== "string") {
+        throw new TypeError("Invalid projection definition");
+      }
       return () => {};
     },
     stateOf() {
@@ -329,4 +336,23 @@ test("8. Declarative config.agents automatically starts configured agents and va
   assert.equal(announcedAgents[0].id, SessionId("main-fixed-session"));
   assert.equal(announcedAgents[0].options.provider, "deepseek");
   assert.ok(loop);
+});
+
+test("9. sessionProjections.register preserves receiver context (this.ctx) for turnBoundary and inbox projections", () => {
+  const env = createMockEnvironment();
+  const registeredKeys = [];
+  env.ctx.sessionProjections.register = function (definition) {
+    assert.equal(
+      this,
+      env.ctx.sessionProjections,
+      "register() must be invoked with ctx.sessionProjections as `this`"
+    );
+    assert.ok(this.ctx, "this.ctx must be accessible inside sessionProjections.register()");
+    registeredKeys.push(definition.key);
+    return () => {};
+  };
+
+  const loop = new FastAgentLoop(env.ctx);
+  assert.ok(loop);
+  assert.deepEqual(registeredKeys, ["turnBoundary", "inbox"]);
 });
