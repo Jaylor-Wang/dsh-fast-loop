@@ -154,16 +154,19 @@ export function requestProposal(header: {
   return proposal;
 }
 
-export const TRANSIENT_RETRYABLE_CODES = new Set([
-  "TIMEOUT",
-  "TRANSPORT",
-  "UPSTREAM",
-  "EMPTY_RESPONSE",
-  "STREAM_ERROR"
-]);
+export const TRANSIENT_RETRYABLE_CODES: Readonly<Record<string, true>> = {
+  TIMEOUT: true,
+  PROTOCOL_DRIFT: true,
+  TRANSPORT: true,
+  UPSTREAM: true,
+  SERVER: true,
+  RATE_LIMIT: true,
+  EMPTY_RESPONSE: true,
+  STREAM_ERROR: true
+};
 
 export function isTransientRetryableFailure(code: unknown): boolean {
-  return typeof code === "string" && TRANSIENT_RETRYABLE_CODES.has(code);
+  return typeof code === "string" && TRANSIENT_RETRYABLE_CODES[code] === true;
 }
 
 async function waitAbortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {

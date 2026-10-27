@@ -18,7 +18,7 @@ export declare function requestProposal(header: {
         maxTokens?: boolean;
     };
 }): LlmCallConfig;
-export declare const TRANSIENT_RETRYABLE_CODES: Set<string>;
+export declare const TRANSIENT_RETRYABLE_CODES: Readonly<Record<string, true>>;
 export declare function isTransientRetryableFailure(code: unknown): boolean;
 export declare class FastLoopDriver {
     private readonly agent;

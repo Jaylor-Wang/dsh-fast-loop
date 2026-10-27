@@ -291,6 +291,21 @@ test("Contract 8: FastLoopDriver automatically retries transient TIMEOUT stream 
         };
         return;
       }
+      if (streamCallCount === 2) {
+        yield { type: "block-start", index: 0, blockType: "reasoning" };
+        yield { type: "reasoning-delta", index: 0, text: "Retrying SVG stream..." };
+        yield {
+          type: "finish",
+          reason: {
+            kind: "error",
+            failure: {
+              message: "The Antigravity private request failed safely (PROTOCOL_DRIFT)",
+              code: "PROTOCOL_DRIFT"
+            }
+          }
+        };
+        return;
+      }
       yield { type: "block-start", index: 0, blockType: "text" };
       yield { type: "text-delta", index: 0, text: " SVG generated successfully!" };
       yield {
@@ -353,14 +368,14 @@ test("Contract 8: FastLoopDriver automatically retries transient TIMEOUT stream 
   );
 
   assert.deepEqual(outcome, { kind: "completed" });
-  assert.equal(streamCallCount, 2, "Driver must retry once after transient TIMEOUT");
+  assert.equal(streamCallCount, 3, "Driver must retry across both TIMEOUT and PROTOCOL_DRIFT");
 
   const attempts = appendedEvents.filter((e) => e.type === "assistant/attempt");
   const messages = appendedEvents.filter((e) => e.type === "assistant/message");
   const headers = appendedEvents.filter((e) => e.type === "request/header");
 
-  assert.equal(attempts.length, 1, "First failed attempt must be recorded as assistant/attempt");
-  assert.equal(messages.length, 1, "Second succeeded attempt must be recorded as assistant/message");
+  assert.equal(attempts.length, 2, "Both failed attempts must be recorded as assistant/attempt");
+  assert.equal(messages.length, 1, "Third succeeded attempt must be recorded as assistant/message");
   assert.equal(headers.length, 1, "Retry with adapterDefaults must not log redundant change header");
 });
 
