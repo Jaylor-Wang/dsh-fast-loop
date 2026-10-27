@@ -17,7 +17,8 @@ import type { RequestContext, TurnEndReason } from "@deepseek-ai/dsh-session/typ
 import {
   joinContextSections,
   renderContextSections,
-  renderPrompt
+  renderPrompt,
+  type PromptAssembly
 } from "@deepseek-ai/dsh-system-prompt";
 import {
   TOOL_ABORTED_BEFORE_DISPATCH,
@@ -27,12 +28,13 @@ import { deepFreeze } from "@deepseek-ai/dsh-util-values";
 import {
   analyzeToolAccess,
   hasResourceConflict,
-  TOOL_INTERRUPT_ABORT_REASON
+  TOOL_INTERRUPT_ABORT_REASON,
+  isToolInterruptReason
 } from "./barrier.js";
 import type { FastAgent } from "./agent.js";
 import { getCancelCause } from "./agent.js";
 import { AssistantStreamAttempt } from "./stream.js";
-import { resolveMaxParallel } from "./types.js";
+import { resolveMaxParallel, type StepMetrics } from "./types.js";
 import {
   SystemPromptProjection,
   RuntimeContextProjection
@@ -92,6 +94,7 @@ export interface NormalizedBlocksResult {
 }
 
 export function stripDsmlFromText(text: string): { text: string; hasLeak: boolean } {
+  if (!text.includes("<")) return { text, hasLeak: false };
   const matches = Array.from(text.matchAll(DSML_TAG_REGEX));
   if (matches.length === 0) return { text, hasLeak: false };
   const first = matches[0];
@@ -272,6 +275,7 @@ export class FastLoopDriver {
             // Step accepted: open durable step boundary
             target = "next-step";
             this.agent.phase.step = step;
+            const stepStartTime = Date.now();
             this.agent.session.append("step/start", stepPosition);
             const toolRecovery = new ToolCallRecovery();
             const stopRecovery = typeof (this.agent.loopCtx as any)?.on === "function"
@@ -281,7 +285,7 @@ export class FastLoopDriver {
               : () => {};
 
             try {
-              const stepOutcome = await this.runStep(turn, step, decision, assembly, signal);
+              const stepOutcome = await this.runStep(turn, step, decision, assembly, signal, stepStartTime);
               if (turnEnds === null || turnEnds.kind !== "max-tokens") {
                 turnEnds = stepOutcome;
               }
@@ -379,8 +383,9 @@ export class FastLoopDriver {
     turn: number,
     step: number,
     decision: { kind: "enter"; messages: readonly UserMessage[]; startsRequestSeries?: boolean },
-    assembly: any,
-    signal: AbortSignal
+    assembly: PromptAssembly,
+    signal: AbortSignal,
+    stepStartTime: number = Date.now()
   ): Promise<TurnEndReason | null> {
     const renderedPrompt = assembly?.sections ? renderPrompt(assembly) : "";
     let firstAttempt = true;
@@ -727,6 +732,66 @@ export class FastLoopDriver {
           ).seq
         );
 
+        let toolsDurationMs = 0;
+        let concludedOutcome = false;
+
+        if (toolCalls.length > 0) {
+          const toolsStart = Date.now();
+          const { concluded } = await this.executeTools(
+            turn,
+            step,
+            toolCalls,
+            signal,
+            (context) => this.agent.inbox.append("next-step", context as unknown as UserMessage)
+          );
+          toolsDurationMs = Math.max(0, Date.now() - toolsStart);
+          concludedOutcome = concluded;
+        }
+
+        const stepTotalMs = Math.max(0, Date.now() - stepStartTime);
+        const llmDurationMs = live.durationMs ?? 0;
+        const ttftMs = live.ttftMs;
+        const overheadMs = Math.max(0, stepTotalMs - llmDurationMs - toolsDurationMs);
+
+        const metrics: StepMetrics = {
+          turn,
+          step,
+          totalDurationMs: stepTotalMs,
+          llmDurationMs,
+          ...(ttftMs !== undefined ? { ttftMs } : {}),
+          toolsDurationMs,
+          overheadMs,
+          attempts: stepAttempts,
+          toolCallCount: toolCalls.length,
+          ...(live.usage ? { usage: live.usage } : {})
+        };
+
+        this.agent.lastStepMetrics = metrics;
+
+        const ttftInfo = ttftMs !== undefined ? ` (ttft: ${ttftMs}ms)` : "";
+        const toolInfo = toolCalls.length > 0 ? ` | tools: ${toolsDurationMs}ms (${toolCalls.length} calls)` : "";
+        const retryInfo = stepAttempts > 1 ? ` | attempts: ${stepAttempts}` : "";
+        const usage = live.usage;
+        const usageInfo = usage
+          ? ` | tokens: in=${usage.inputTokens ?? 0}, out=${usage.outputTokens ?? 0}${usage.cacheReadTokens ? `, cache=${usage.cacheReadTokens}` : ""}`
+          : "";
+
+        try {
+          this.agent.loopCtx.logger("fast-loop").info(
+            `[Step ${turn}.${step}] ${stepTotalMs}ms | llm: ${llmDurationMs}ms${ttftInfo}${toolInfo} | overhead: ${overheadMs}ms${retryInfo}${usageInfo}`
+          );
+        } catch {
+          // ignore logger failure
+        }
+        try {
+          (this.agent.dispatch as unknown as { emit(event: string, data: unknown): void }).emit(
+            "agent/step-metrics",
+            metrics
+          );
+        } catch {
+          // ignore dispatch failure
+        }
+
         if (finish?.kind === "max-tokens") {
           return { kind: "max-tokens" };
         }
@@ -749,19 +814,20 @@ export class FastLoopDriver {
         }
 
         if (toolCalls.length > 0) {
-          const { concluded } = await this.executeTools(
-            turn,
-            step,
-            toolCalls,
-            signal,
-            (context) => this.agent.inbox.append("next-step", context as any)
-          );
-          return concluded ? { kind: "completed" } : null;
+          return concludedOutcome ? { kind: "completed" } : null;
         }
 
         return { kind: "completed" };
       } catch (error) {
         if (!live.ended) live.abandon();
+        const stepTotalMs = Math.max(0, Date.now() - stepStartTime);
+        try {
+          this.agent.loopCtx.logger("fast-loop").warn(
+            `[Step ${turn}.${step}] failed after ${stepTotalMs}ms (llm: ${live.durationMs ?? 0}ms, attempts: ${stepAttempts})`
+          );
+        } catch {
+          // ignore logger failure
+        }
         throw error;
       }
     }
@@ -983,6 +1049,7 @@ export class FastLoopDriver {
     const settled = new Set<number>();
     const inFlight = new Map<number, Promise<number>>();
     const inFlightControllers = new Map<number, AbortController>();
+    const softInterruptedIndices = new Set<number>();
 
     const sess = this.agent.session;
     const sessionCwd =
@@ -1107,7 +1174,8 @@ export class FastLoopDriver {
       };
 
       const onSoftAbort = () => {
-        if (callCtrl.signal.reason === TOOL_INTERRUPT_ABORT_REASON) {
+        if (isToolInterruptReason(callCtrl.signal.reason) || softInterruptedIndices.has(idx)) {
+          softInterruptedIndices.add(idx);
           setTimeout(() => {
             if (!settled.has(idx)) {
               cleanup();
@@ -1125,6 +1193,7 @@ export class FastLoopDriver {
               };
               settled.add(idx);
               inFlight.delete(idx);
+              wakeSteerWaiter?.();
             }
           }, 20);
         }
@@ -1150,11 +1219,9 @@ export class FastLoopDriver {
               cleanup();
               if (!settled.has(idx)) {
                 const isSoftInterrupt =
-                  callCtrl.signal.aborted &&
-                  (callCtrl.signal.reason === TOOL_INTERRUPT_ABORT_REASON ||
-                    String(callCtrl.signal.reason).includes("tool-interrupt") ||
-                    String(error).includes("tool-interrupt") ||
-                    String(error).includes("user steering"));
+                  softInterruptedIndices.has(idx) ||
+                  isToolInterruptReason(callCtrl.signal.reason) ||
+                  isToolInterruptReason(error);
 
                 slots[idx] = {
                   exec: prepared.exec,
@@ -1237,6 +1304,7 @@ export class FastLoopDriver {
         if (profile.isInterruptibleWait) {
           const ctrl = inFlightControllers.get(runningIdx);
           if (ctrl && !ctrl.signal.aborted) {
+            softInterruptedIndices.add(runningIdx);
             ctrl.abort(TOOL_INTERRUPT_ABORT_REASON);
             applied = true;
           }

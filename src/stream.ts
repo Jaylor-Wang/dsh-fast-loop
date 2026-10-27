@@ -15,6 +15,9 @@ export class AssistantStreamAttempt {
   private readonly assembler = new BlockAssembler();
   private index = 0;
   private terminal = false;
+  private startTime = 0;
+  private firstChunkTime = 0;
+  private endTime = 0;
   readonly attemptId: LlmAttemptId;
 
   constructor(
@@ -33,6 +36,7 @@ export class AssistantStreamAttempt {
   }
 
   start(): void {
+    this.startTime = Date.now();
     this.emit({
       type: "start",
       attemptId: this.attemptId,
@@ -44,8 +48,12 @@ export class AssistantStreamAttempt {
 
   push(chunk: StreamChunk): void {
     if (this.terminal) return;
+    const now = Date.now();
+    if (!this.firstChunkTime) {
+      this.firstChunkTime = now;
+    }
     const timed = this.accumulator.push({
-      time: Date.now(),
+      time: now,
       chunk
     });
     this.assembler.push(timed.chunk);
@@ -61,6 +69,9 @@ export class AssistantStreamAttempt {
 
   settle(eventType: "assistant/message" | "assistant/attempt", append: () => SessionSeq): void {
     if (this.terminal) return;
+    if (!this.endTime) {
+      this.endTime = Date.now();
+    }
     let seq: SessionSeq;
     try {
       seq = append();
@@ -84,6 +95,9 @@ export class AssistantStreamAttempt {
 
   abandon(): void {
     if (this.terminal) return;
+    if (!this.endTime) {
+      this.endTime = Date.now();
+    }
     this.terminal = true;
     this.emit({
       type: "end",
@@ -116,5 +130,17 @@ export class AssistantStreamAttempt {
 
   get replayState() {
     return this.assembler.replayState;
+  }
+
+  get ttftMs(): number | undefined {
+    return this.firstChunkTime > 0 && this.startTime > 0
+      ? Math.max(0, this.firstChunkTime - this.startTime)
+      : undefined;
+  }
+
+  get durationMs(): number | undefined {
+    if (this.startTime <= 0) return undefined;
+    const end = this.endTime > 0 ? this.endTime : Date.now();
+    return Math.max(0, end - this.startTime);
   }
 }

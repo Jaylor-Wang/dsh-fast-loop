@@ -554,5 +554,6 @@ export {
   TRANSIENT_RETRYABLE_CODES
 } from "./loop.js";
 export * from "./barrier.js";
+export type { StepMetrics } from "./types.js";
 export { turnBoundaryProjectionDefinition, inboxProjectionDefinition };
 export default FastAgentLoop;

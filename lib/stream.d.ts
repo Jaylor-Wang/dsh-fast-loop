@@ -10,6 +10,9 @@ export declare class AssistantStreamAttempt {
     private readonly assembler;
     private index;
     private terminal;
+    private startTime;
+    private firstChunkTime;
+    private endTime;
     readonly attemptId: LlmAttemptId;
     constructor(sessionId: SessionId, attempt: number, nextRevision: () => number, turn: number, step: number, emit: (frame: AssistantStreamFrame) => void);
     get ended(): boolean;
@@ -23,5 +26,7 @@ export declare class AssistantStreamAttempt {
     get usage(): TokenUsage | undefined;
     get finish(): import("@deepseek-ai/dsh-llm").FinishReason;
     get replayState(): import("@deepseek-ai/dsh-llm").ReplayEnvelope | undefined;
+    get ttftMs(): number | undefined;
+    get durationMs(): number | undefined;
 }
 //# sourceMappingURL=stream.d.ts.map

@@ -14,7 +14,7 @@ import type { SessionId } from "@deepseek-ai/dsh-session/types";
 import type { Session } from "@deepseek-ai/dsh-session";
 import type { UserMessage } from "@deepseek-ai/dsh-llm";
 import { FastInbox } from "./inbox.js";
-import type { AgentPhase, FastLoopConfig } from "./types.js";
+import type { AgentPhase, FastLoopConfig, StepMetrics } from "./types.js";
 import { FastLoopDriver } from "./loop.js";
 
 export function getCancelCause(signal: AbortSignal): AgentCancelCause | undefined {
@@ -49,8 +49,8 @@ export class FastAgent implements Agent {
   readonly driver: FastLoopDriver;
 
   phase: AgentPhase;
+  lastStepMetrics?: StepMetrics;
   activityDone: Promise<void> = Promise.resolve();
-
   constructor(
     loopCtx: Context,
     id: SessionId,

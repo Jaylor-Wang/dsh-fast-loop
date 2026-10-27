@@ -1,4 +1,5 @@
 export declare const TOOL_INTERRUPT_ABORT_REASON: unique symbol;
+export declare function isToolInterruptReason(reason: unknown): boolean;
 export type ToolAccessKind = "read" | "write" | "barrier" | "pure";
 export interface ToolAccessProfile {
     readonly kind: ToolAccessKind;

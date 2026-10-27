@@ -19,6 +19,14 @@ function normalizePosix(p: string): string {
 
 export const TOOL_INTERRUPT_ABORT_REASON = Symbol.for("deepseek.tool-interrupt");
 
+export function isToolInterruptReason(reason: unknown): boolean {
+  if (reason === TOOL_INTERRUPT_ABORT_REASON) return true;
+  if (typeof reason === "object" && reason !== null) {
+    const rec = reason as { cause?: unknown; reason?: unknown };
+    return rec.cause === TOOL_INTERRUPT_ABORT_REASON || rec.reason === TOOL_INTERRUPT_ABORT_REASON;
+  }
+  return false;
+}
 export type ToolAccessKind = "read" | "write" | "barrier" | "pure";
 
 export interface ToolAccessProfile {
