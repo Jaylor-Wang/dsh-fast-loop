@@ -13,6 +13,17 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
+## Highlights in v0.5.2
+
+- **Step Metrics**: Exports `StepMetrics`, exposes `agent.lastStepMetrics`, and emits runtime `agent/step-metrics` events with step duration, final-attempt model timing, first-chunk latency, tool duration, attempt count, and token usage.
+- **Structured Soft Interrupts**: Replaces error-text substring checks with Symbol-based classification and per-call interruption tracking, retaining polling as a fallback.
+- **DSML Fast Path**: Skips DSML regex scanning for text without `<`.
+- **Expanded Fallback Retry Classification**: Includes `PROTOCOL_DRIFT`, `RATE_LIMIT`, and `SERVER`.
+- **API Note**: `TRANSIENT_RETRYABLE_CODES` is now a readonly lookup object instead of a `Set`; use `isTransientRetryableFailure(code)` instead of `.has()`.
+- **Measurement Limits**: Metrics are runtime-only; prior failed attempts and retry waits contribute to residual overhead. The existing concurrency benchmark does not establish a speedup over the current official loop.
+
+---
+
 ## Highlights in v0.5.1
 
 - **Strict `sessionProjections.register` Receiver Context & Wire Typing**: Natively types `inboxProjectionDefinition` as `Required<ProjectionDefinition<"inbox", InboxState>>`, enabling direct `ctx.sessionProjections.register(inboxProjectionDefinition)` invocation without intermediate function extraction or `any` casts—eliminating `this.ctx` binding loss and `"no agent factory registered"` session resume failures.

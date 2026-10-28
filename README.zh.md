@@ -13,6 +13,17 @@
 
 ---
 
+## v0.5.2 版本核心特性
+
+- **步骤级指标**：导出 `StepMetrics`，提供 `agent.lastStepMetrics` 与运行时 `agent/step-metrics` 事件，记录步骤耗时、最后一次模型尝试耗时、首 chunk 延迟、工具耗时、尝试次数及 token 用量。
+- **结构化软中断**：使用 Symbol 分类与调用索引跟踪替换错误文本子串匹配，保留轮询兜底。
+- **DSML 快速路径**：对不含 `<` 的文本跳过 DSML 正则扫描。
+- **扩展兜底重试分类**：新增 `PROTOCOL_DRIFT`、`RATE_LIMIT` 和 `SERVER`。
+- **接口注意事项**：`TRANSIENT_RETRYABLE_CODES` 从 `Set` 改为只读对象表；外部调用者应使用 `isTransientRetryableFailure(code)` 替代 `.has()`。
+- **指标边界**：指标仅通过运行时提供；先前失败尝试和重试等待会计入剩余开销。现有并发 Benchmark 不能证明比当前官方 loop 更快。
+
+---
+
 ## v0.5.1 版本核心特性
 
 - **会话投影注册接收者上下文与类型根治**：将 `inboxProjectionDefinition` 导出类型精确收敛为 `Required<ProjectionDefinition<"inbox", InboxState>>`，直接通过 `ctx.sessionProjections.register(inboxProjectionDefinition)` 零转型调用，彻底杜绝因方法解构导致 `this.ctx` 丢失及引发的 `no agent factory registered` 会话恢复失败。
