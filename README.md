@@ -7,9 +7,22 @@ English | [中文](README.zh.md)
 [![GitHub release](https://img.shields.io/github/v/release/Jaylor-Wang/dsh-fast-loop.svg)](https://github.com/Jaylor-Wang/dsh-fast-loop/releases)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict%20Types-blue.svg)](tsconfig.json)
 
-High-performance streaming agent loop plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH).
+An experimental agent-loop plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH), preserved for reference.
 
-Replaces the default `agent-loop` with a high-throughput, bounded concurrent execution engine featuring zero-allocation transactional message routing, caller-shadow safe Cordis service reachability, and resilient durable turn/step boundary recovery.
+## Maintenance status
+
+**Active maintenance ended on October 28, 2026. This repository is archived.** The final GitHub release is [v0.5.2](https://github.com/Jaylor-Wang/dsh-fast-loop/releases/tag/v0.5.2). Compatibility with future DSH versions is not guaranteed.
+
+The official loop continues to evolve, while maintaining a complete replacement requires substantial compatibility work without a demonstrated general performance benefit. **Use the official DSH `agent-loop` for ongoing use.** Source code, release history, and experiments remain available for study and forks.
+
+If the plugin is already installed, restore the official loop for your profile:
+
+```sh
+dsh-fast-loop disable --profile web
+dsh-fast-loop status --profile web
+```
+
+Replace `web` with your profile name, then restart DSH. The installation and configuration instructions below are retained as historical reference.
 
 ---
 
@@ -21,41 +34,6 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 - **Expanded Fallback Retry Classification**: Includes `PROTOCOL_DRIFT`, `RATE_LIMIT`, and `SERVER`.
 - **API Note**: `TRANSIENT_RETRYABLE_CODES` is now a readonly lookup object instead of a `Set`; use `isTransientRetryableFailure(code)` instead of `.has()`.
 - **Measurement Limits**: Metrics are runtime-only; prior failed attempts and retry waits contribute to residual overhead. The existing concurrency benchmark does not establish a speedup over the current official loop.
-
----
-
-## Highlights in v0.5.1
-
-- **Strict `sessionProjections.register` Receiver Context & Wire Typing**: Natively types `inboxProjectionDefinition` as `Required<ProjectionDefinition<"inbox", InboxState>>`, enabling direct `ctx.sessionProjections.register(inboxProjectionDefinition)` invocation without intermediate function extraction or `any` casts—eliminating `this.ctx` binding loss and `"no agent factory registered"` session resume failures.
-- **Receiver-Context Regression Guard**: Enforces `this.ctx` receiver verification directly inside the lifecycle test suite's projection registry mock to prevent unbound method regressions.
-
----
-
-## Highlights in v0.5.0
-
-- **Built-In Transient Stream Timeout & Network Auto-Retry**: Automatically recovers from mid-turn transient stream failures (`TIMEOUT`, `TRANSPORT`, `UPSTREAM`, `EMPTY_RESPONSE`, `STREAM_ERROR`) with abort-aware exponential backoff (`maxTransientRetries`, default `2`), rescuing long multi-step turns even when upstream adapters enforce `maxRetries: 0`.
-- **Setup-Window Event Persistence (`appendUnstoredSuffix`)**: Durably flushes both constructor `seed` events and `setup()` window session events right before publication, preventing delegation policy or setup records from being lost across restarts while leaving zero uncommitted residue on setup failure.
-- **Adapter Defaults Stripping (`requestProposal`)**: Strips adapter-populated `maxTokens` and `reasoningEffort` defaults (`adapterDefaults`) before proposing subsequent `agent/request` configs, preventing redundant `request/header` change logs and cross-model default lock-in.
-- **Declarative `config.agents` Startup & Identity Validation**: Supports declarative startup/resume of configured agents, `CONFIGURED_AGENT_IDENTITIES_KEY` launcher overrides, and upfront identity conflict validation.
-- **Sanitized Cancel Causes & Dynamic Host Anchor Resolution**: Strips Node `fetch`/`undici` error stack pollution from `turn/end` cancel causes via whitelist shallow copy, and dynamically resolves global DSH host anchors across platforms without hardcoded paths.
-
----
-
-## Highlights in v0.4.6
-
-- **Native Web GUI Settings Card**: Seamlessly registers an interactive settings card in DSH General Settings (`通用设置`), offering a visual slider (1–32) and quick presets for `maxParallelToolCalls` without modifying DSH core code.
-- **Dynamic Volatile Store Sampling**: Concurrency limits dynamically resolve reactive state from client volatile stores or functions in real time without restarting the web service or refreshing the page.
-- **DSH Client Plugin Web Manifest**: Fully exports `./client` conforming to DSH client specifications, declaring `dsh.client` for the `web` platform with clean locale and settings dependencies.
-
----
-
-## Highlights in v0.4.5
-
-- **Strict Monotonic Stream Revisions & Terminal Guard**: Enforces monotonic assistant stream revisions with a terminal guard (`push`, `settle`, `abandon`), eliminating duplicate frames and preventing `RemoteStreamCarrierError: session assistant stream skipped revision` in DSH Web UI.
-- **Active Phase Wake Latching (Steering Guarantee)**: Latches `phase.wakeRequested = true` when messages arrive during active execution (`phase.kind === "running"`), automatically waking the driver upon turn completion so mid-turn user inputs are never dropped.
-- **Clean Turn Settlement & Signal Reset**: Resets `AbortController` and step counters per turn, ensuring turns end with clean `{ kind: "completed" }` statuses and eliminating spurious UI "处理失败" error markers.
-- **Event-Sourced V4 Protocol Compliance**: Correctly sets producer-owned source kinds on synthetic recovery messages to satisfy strict DSH Session V4 formatting contracts.
-- **Comprehensive Front-End Contract Test Suite**: Ships with dedicated mock tests covering stream monotonicity, idempotent abandonment, V4 source compliance, and phase wake latching.
 
 ---
 
@@ -73,9 +51,9 @@ Replaces the default `agent-loop` with a high-throughput, bounded concurrent exe
 
 ---
 
-## Installation
+## Installation (Historical Reference)
 
-### Via DSH Plugin CLI (Recommended)
+### Via DSH Plugin CLI
 
 ```sh
 dsh plugin --profile web add dsh-fast-loop@latest
@@ -89,7 +67,7 @@ npm install dsh-fast-loop@latest
 pnpm add dsh-fast-loop@latest
 ```
 
-### Method 1: One-Click CLI Switcher (Recommended)
+### Method 1: One-Click CLI Switcher
 
 Switch between Fast Loop and Official Loop effortlessly without manual YAML editing:
 

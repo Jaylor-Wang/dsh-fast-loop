@@ -7,9 +7,22 @@
 [![GitHub release](https://img.shields.io/github/v/release/Jaylor-Wang/dsh-fast-loop.svg)](https://github.com/Jaylor-Wang/dsh-fast-loop/releases)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict%20Types-blue.svg)](tsconfig.json)
 
-为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) 打造的高性能流式智能体循环（Agent Loop）插件。
+为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH) 开发的实验性 Agent Loop 插件，现保留供参考。
 
-全面替代默认的 `agent-loop`，提供高吞吐有界并发工具调度、防影子穿透的 Cordis 服务依赖注入架构、事务级零延迟消息收件箱（Inbox），以及完备的持久化轮次与步骤（Turn / Step）弹性自愈能力。
+## 维护状态
+
+**本项目已于 2026 年 10 月 28 日停止主动维护，仓库已归档。** 最后正式 GitHub Release 为 [v0.5.2](https://github.com/Jaylor-Wang/dsh-fast-loop/releases/tag/v0.5.2)，不再保证与后续 DSH 版本兼容。
+
+官方 loop 持续演进，独立维护完整替代实现需要较高的兼容性成本，目前也没有证据证明本项目在真实任务中普遍更快。**后续使用推荐回归 DSH 官方 `agent-loop`。** 源码、发布历史和实验成果继续保留，供研究与 Fork。
+
+如果已安装本插件，可为对应配置恢复官方 loop：
+
+```sh
+dsh-fast-loop disable --profile web
+dsh-fast-loop status --profile web
+```
+
+将 `web` 替换为实际配置名称，然后重启 DSH。下方安装与配置说明仅作为历史参考保留。
 
 ---
 
@@ -21,41 +34,6 @@
 - **扩展兜底重试分类**：新增 `PROTOCOL_DRIFT`、`RATE_LIMIT` 和 `SERVER`。
 - **接口注意事项**：`TRANSIENT_RETRYABLE_CODES` 从 `Set` 改为只读对象表；外部调用者应使用 `isTransientRetryableFailure(code)` 替代 `.has()`。
 - **指标边界**：指标仅通过运行时提供；先前失败尝试和重试等待会计入剩余开销。现有并发 Benchmark 不能证明比当前官方 loop 更快。
-
----
-
-## v0.5.1 版本核心特性
-
-- **会话投影注册接收者上下文与类型根治**：将 `inboxProjectionDefinition` 导出类型精确收敛为 `Required<ProjectionDefinition<"inbox", InboxState>>`，直接通过 `ctx.sessionProjections.register(inboxProjectionDefinition)` 零转型调用，彻底杜绝因方法解构导致 `this.ctx` 丢失及引发的 `no agent factory registered` 会话恢复失败。
-- **生命周期测试接收者上下文强校验**：在测试套件 Mock 与专项回归用例中强制校验 `sessionProjections.register` 的 `this.ctx` 绑定，从测试防线封死同类回归问题。
-
----
-
-## v0.5.0 版本核心特性
-
-- **内置流式超时与瞬态网络错误兜底重试**：当上游适配器（如 Antigravity）硬编码 `maxRetries: 0` 导致官方重试插件失效时，自动对 `TIMEOUT`、`TRANSPORT`、`UPSTREAM`、`EMPTY_RESPONSE`、`STREAM_ERROR` 等瞬态中断执行支持信号中断的指数退避重试（`maxTransientRetries` 默认 `2` 次），彻底杜绝长任务在最后一步因流超时而功亏一篑。
-- **Setup 窗口期事件完整落盘（`appendUnstoredSuffix`）**：对齐官方持久化事务边界，在 `setup()` 钩子提交后、正式发布前统一将构造 `seed` 与 `setup` 期间写入的会话事件（如子 Agent 委派策略记录）刷入磁盘，且在 `setup` 失败回滚时不留任何未提交残余。
-- **适配器默认参数剥离（`requestProposal`）**：在发起后续步骤的 `agent/request` 前自动剥离上次由适配器填充的默认 `maxTokens` 与 `reasoningEffort`（`adapterDefaults`），消除跨轮次多余的 `request/header (reason: "change")` 记录以及切换模型时的默认参数锁死。
-- **声明式 `config.agents` 自动拉起与身份校验**：完整支持配置文件声明式 Agent 的自动创建/恢复、`CONFIGURED_AGENT_IDENTITIES_KEY` 启动器身份覆盖及互斥/重复身份前置校验。
-- **取消原因栈污染净化与跨平台宿主动态寻址**：对 `getCancelCause` 执行字段白名单浅拷贝，剥离 Node `fetch` 注入的 `stack` 属性污染；移除本地路径硬编码，支持跨平台动态推导全局 DSH 宿主锚点。
-
----
-
-## v0.4.6 版本核心特性
-
-- **Web 界面原生设置卡片**：在 DSH 设置（通用设置）中无缝集成 `dsh-fast-loop` 配置卡片，提供最大工具并发数（`maxParallelToolCalls`，范围 1～32）可视化滑块与预设按钮，完全无需修改 DSH 核心源码。
-- **动态 Volatile 响应式采样**：运行时动态采样配置支持函数与 Volatile 存储，在前端拖动滑块时即刻响应生效，无需刷新页面或重启服务。
-- **标准化 Client Plugin 导出规范**：遵循 DSH 客户端规范导出 `./client`，声明 `dsh.client` 与 `web` 平台依赖注入，保证零侵入式无缝装载。
-
----
-
-## v0.4.5 版本核心特性
-
-- **流式帧号严格单调递增与终止守卫**：引入 `AssistantStreamAttempt` 状态机终结守卫，杜绝重复发射帧与跳号，彻底消除前端因 `RemoteStreamCarrierError: session assistant stream skipped revision` 导致的白屏断流。
-- **活跃阶段输入唤醒锁存（用户中途追问保障）**：当驱动处于执行态（`running`）接收用户消息时，硬件级强制锁存 `phase.wakeRequested = true` 并在轮次结算后自动唤醒驱动，根治“正在分析请求卡死、消息被吞”。
-- **纯净轮次结算与信号隔离**：严格按轮次重新分配全新的 `AbortController` 并重置步骤计数，结算始终返回标准 `{ kind: "completed" }`，彻底根除前端 UI 虚假弹出的红字“处理失败”。
-- **对齐 DSH 会话 V4 事件溯源规范**：合成自愈消息均携带生产者所有权标识（`source: { kind: "fast-loop" }`），100% 满足会话事件规范校验。
-- **全套前端洁癖契约回归测试**：内置 4 项针对前端挑剔时序的专属 Mock 契约测试，保障版本迭代稳定不破约。
 
 ---
 
@@ -73,9 +51,9 @@
 
 ---
 
-## 安装与快速上手
+## 安装与快速上手（历史参考）
 
-### 通过 DSH 插件命令安装（推荐）
+### 通过 DSH 插件命令安装
 
 ```sh
 dsh plugin --profile web add dsh-fast-loop@latest
@@ -89,7 +67,7 @@ npm install dsh-fast-loop@latest
 pnpm add dsh-fast-loop@latest
 ```
 
-### 方式一：命令行一键切换（推荐，零风险）
+### 方式一：命令行一键切换
 
 内置 CLI 自动安全更新 `cordis.patch.yml`，彻底杜绝手写 YAML 缩进错误：
 
